@@ -1,0 +1,271 @@
+<?php
+/**
+ * Manual Stock Adjustment - Mini ERP System
+ * Add or remove stock with Free-to-Use validation for removals.
+ */
+
+$pageTitle = 'Stock Adjustment';
+$currentModule = 'inventory';
+
+require_once __DIR__ . '/../../includes/auth_check.php';
+require_once __DIR__ . '/../../includes/inventory_helpers.php';
+
+$errors = [];
+$old = $_POST;
+
+// Fetch products for selector
+$products = $conn->query("SELECT product_id, product_code, product_name, uom, on_hand_qty, reserved_qty FROM tbl_products WHERE is_active = 1 ORDER BY product_name")->fetch_all(MYSQLI_ASSOC);
+
+// Build JSON data for client-side display
+$productData = [];
+foreach ($products as $p) {
+    $free = get_free_qty($p['on_hand_qty'], $p['reserved_qty']);
+    $productData[$p['product_id']] = [
+        'name' => $p['product_name'],
+        'code' => $p['product_code'],
+        'uom' => $p['uom'],
+        'on_hand' => (float)$p['on_hand_qty'],
+        'reserved' => (float)$p['reserved_qty'],
+        'free_to_use' => $free,
+    ];
+}
+
+// ─── Handle POST ────────────────────────────────────────────────────────────
+if (is_post()) {
+    if (!csrf_validate()) {
+        $errors[] = 'Invalid security token.';
+    } else {
+        $productId = intval($_POST['product_id'] ?? 0);
+        $adjustType = $_POST['adjust_type'] ?? ''; // add or remove
+        $quantity = floatval($_POST['quantity'] ?? 0);
+        $notes = trim($_POST['notes'] ?? '');
+
+        // Validation
+        if ($productId <= 0) $errors[] = 'Please select a product.';
+        if (!in_array($adjustType, ['add', 'remove'])) $errors[] = 'Invalid adjustment type.';
+        if ($quantity <= 0) $errors[] = 'Quantity must be greater than zero.';
+        if (empty($notes)) $errors[] = 'Reason/notes is required for stock adjustments.';
+
+        if (empty($errors)) {
+            // Fetch product for validation
+            $stmt = $conn->prepare("SELECT product_name, product_code, on_hand_qty, reserved_qty FROM tbl_products WHERE product_id = ? AND is_active = 1");
+            $stmt->bind_param("i", $productId);
+            $stmt->execute();
+            $product = $stmt->get_result()->fetch_assoc();
+            $stmt->close();
+
+            if (!$product) {
+                $errors[] = 'Product not found or inactive.';
+            } else {
+                // ─── Negative Stock Prevention ──────────────────────────────
+                if ($adjustType === 'remove') {
+                    $freeToUse = get_free_qty($product['on_hand_qty'], $product['reserved_qty']);
+                    if ($quantity > $freeToUse) {
+                        $errors[] = 'Cannot remove ' . fmt_qty($quantity) . ' units. Only ' 
+                                  . fmt_qty($freeToUse) . ' units are available (Free-to-Use). '
+                                  . fmt_qty($product['reserved_qty']) . ' units are reserved by active orders.';
+                    }
+                }
+                // ─── End Negative Stock Prevention ──────────────────────────
+
+                if (empty($errors)) {
+                    $actualQty = $adjustType === 'remove' ? -$quantity : $quantity;
+                    $userId = $_SESSION['user_id'];
+
+                    $conn->begin_transaction();
+                    try {
+                        update_stock($conn, $productId, $actualQty, 'adjustment', 'Manual', null, $notes, $userId);
+
+                        // Audit log
+                        log_action($conn, 'Inventory', ACTION_STOCK_ADJUST, 'Product', $productId, 
+                            ['on_hand_qty' => $product['on_hand_qty']],
+                            [
+                                'adjustment_type' => $adjustType,
+                                'quantity' => $quantity,
+                                'on_hand_qty' => $product['on_hand_qty'] + $actualQty,
+                                'reason' => $notes,
+                            ]
+                        );
+
+                        $conn->commit();
+                        set_flash('success', ucfirst($adjustType) . ' ' . fmt_qty($quantity) . ' ' . $product['product_code'] . ' — ' . $product['product_name']);
+                        redirect('/modules/inventory/adjust.php');
+
+                    } catch (Exception $ex) {
+                        $conn->rollback();
+                        $errors[] = 'Failed to process adjustment: ' . $ex->getMessage();
+                    }
+                }
+            }
+        }
+    }
+}
+
+include __DIR__ . '/../../includes/header.php';
+?>
+
+<div class="page-header animate-in">
+    <div>
+        <h1>Stock Adjustment</h1>
+        <p class="page-header-desc">
+            <a href="<?= BASE_URL ?>/modules/inventory/index.php" style="color:var(--text-muted);">
+                <i class="fa-solid fa-arrow-left" style="margin-right:4px;"></i> Back to Inventory
+            </a>
+        </p>
+    </div>
+</div>
+
+<?php if (!empty($errors)): ?>
+    <div class="animate-in" style="background:var(--color-danger-bg); border:1px solid rgba(220,38,38,0.15); border-radius:var(--border-radius-sm); padding:14px 16px; margin-bottom:20px; font-size:0.8125rem; color:var(--color-danger);">
+        <i class="fa-solid fa-circle-exclamation" style="margin-right:6px;"></i>
+        <?php foreach ($errors as $err): ?><div><?= e($err) ?></div><?php endforeach; ?>
+    </div>
+<?php endif; ?>
+
+<div style="max-width:700px;">
+    <form method="POST" action="" id="adjust-form">
+        <?= csrf_field() ?>
+
+        <div class="card animate-in">
+            <div class="card-header">
+                <h3><i class="fa-solid fa-sliders" style="color:var(--accent-primary); margin-right:8px;"></i>Adjustment Details</h3>
+            </div>
+            <div class="card-body">
+                <!-- Product Selector -->
+                <div class="form-group">
+                    <label class="form-label" for="product_id">Product <span class="text-danger">*</span></label>
+                    <select name="product_id" id="product_id" class="form-control form-select" required onchange="updateProductInfo(this.value)">
+                        <option value="">— Select Product —</option>
+                        <?php foreach ($products as $p): ?>
+                            <option value="<?= $p['product_id'] ?>" <?= intval($old['product_id'] ?? 0) == $p['product_id'] ? 'selected' : '' ?>>
+                                <?= e($p['product_code']) ?> — <?= e($p['product_name']) ?>
+                            </option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
+
+                <!-- Product Stock Info (dynamic) -->
+                <div id="product-info" style="display:none; background:var(--accent-ultra-light); border:1px solid rgba(37,99,235,0.1); border-radius:var(--border-radius-sm); padding:16px; margin-bottom:16px;">
+                    <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:12px; text-align:center;">
+                        <div>
+                            <div style="font-size:0.75rem; color:var(--text-muted);">On-Hand</div>
+                            <div id="info-on-hand" style="font-size:1.25rem; font-weight:700; color:var(--text-heading);">—</div>
+                        </div>
+                        <div>
+                            <div style="font-size:0.75rem; color:var(--text-muted);">Reserved</div>
+                            <div id="info-reserved" style="font-size:1.25rem; font-weight:700; color:var(--color-warning);">—</div>
+                        </div>
+                        <div>
+                            <div style="font-size:0.75rem; color:var(--text-muted);">Free-to-Use</div>
+                            <div id="info-free" style="font-size:1.25rem; font-weight:700; color:var(--color-success);">—</div>
+                        </div>
+                    </div>
+                    <div id="info-uom" style="font-size:0.75rem; color:var(--text-muted); text-align:center; margin-top:6px;">—</div>
+                </div>
+
+                <!-- Adjustment Type -->
+                <div class="form-group">
+                    <label class="form-label">Adjustment Type <span class="text-danger">*</span></label>
+                    <div style="display:flex; gap:12px;">
+                        <label style="display:flex; align-items:center; gap:8px; padding:12px 20px; border:2px solid var(--border-color); border-radius:var(--border-radius-sm); cursor:pointer; flex:1; transition:all 0.2s;" class="adjust-type-label">
+                            <input type="radio" name="adjust_type" value="add" <?= ($old['adjust_type'] ?? '') === 'add' ? 'checked' : '' ?> style="accent-color:var(--color-success);width:16px;height:16px;" onchange="updateValidation()">
+                            <div>
+                                <div style="font-weight:600; color:var(--color-success);"><i class="fa-solid fa-plus-circle"></i> Add Stock</div>
+                                <div style="font-size:0.75rem; color:var(--text-muted);">Increase inventory</div>
+                            </div>
+                        </label>
+                        <label style="display:flex; align-items:center; gap:8px; padding:12px 20px; border:2px solid var(--border-color); border-radius:var(--border-radius-sm); cursor:pointer; flex:1; transition:all 0.2s;" class="adjust-type-label">
+                            <input type="radio" name="adjust_type" value="remove" <?= ($old['adjust_type'] ?? '') === 'remove' ? 'checked' : '' ?> style="accent-color:var(--color-danger);width:16px;height:16px;" onchange="updateValidation()">
+                            <div>
+                                <div style="font-weight:600; color:var(--color-danger);"><i class="fa-solid fa-minus-circle"></i> Remove Stock</div>
+                                <div style="font-size:0.75rem; color:var(--text-muted);">Decrease inventory</div>
+                            </div>
+                        </label>
+                    </div>
+                </div>
+
+                <!-- Quantity -->
+                <div class="form-group">
+                    <label class="form-label" for="quantity">Quantity <span class="text-danger">*</span></label>
+                    <input type="number" name="quantity" id="quantity" class="form-control" step="0.001" min="0.001" required
+                           value="<?= e($old['quantity'] ?? '') ?>" placeholder="Enter quantity" oninput="updateValidation()">
+                    <div id="qty-warning" style="display:none; margin-top:6px; padding:8px 12px; background:rgba(220,38,38,0.06); border:1px solid rgba(220,38,38,0.15); border-radius:var(--border-radius-sm); font-size:0.8125rem; color:var(--color-danger);">
+                        <i class="fa-solid fa-exclamation-triangle" style="margin-right:4px;"></i>
+                        <span id="qty-warning-text"></span>
+                    </div>
+                </div>
+
+                <!-- Notes -->
+                <div class="form-group" style="margin-bottom:0;">
+                    <label class="form-label" for="notes">Reason / Notes <span class="text-danger">*</span></label>
+                    <textarea name="notes" id="notes" class="form-control" rows="3" required placeholder="Explain why this adjustment is being made..."><?= e($old['notes'] ?? '') ?></textarea>
+                    <span class="form-hint">Required for audit trail purposes.</span>
+                </div>
+            </div>
+            <div class="card-footer">
+                <a href="<?= BASE_URL ?>/modules/inventory/index.php" class="btn btn-secondary">Cancel</a>
+                <button type="submit" id="submit-btn" class="btn btn-primary"><i class="fa-solid fa-check"></i> Submit Adjustment</button>
+            </div>
+        </div>
+    </form>
+</div>
+
+<script>
+const productData = <?= json_encode($productData) ?>;
+
+function updateProductInfo(productId) {
+    const info = document.getElementById('product-info');
+    if (!productId || !productData[productId]) {
+        info.style.display = 'none';
+        return;
+    }
+    const p = productData[productId];
+    info.style.display = 'block';
+    document.getElementById('info-on-hand').textContent = p.on_hand.toFixed(3).replace(/\.?0+$/, '');
+    document.getElementById('info-reserved').textContent = p.reserved.toFixed(3).replace(/\.?0+$/, '');
+    document.getElementById('info-free').textContent = p.free_to_use.toFixed(3).replace(/\.?0+$/, '');
+    document.getElementById('info-uom').textContent = 'Unit: ' + p.uom;
+    updateValidation();
+}
+
+function updateValidation() {
+    const productId = document.getElementById('product_id').value;
+    const adjustType = document.querySelector('input[name="adjust_type"]:checked')?.value;
+    const quantity = parseFloat(document.getElementById('quantity').value) || 0;
+    const warning = document.getElementById('qty-warning');
+    const submitBtn = document.getElementById('submit-btn');
+    
+    if (adjustType === 'remove' && productId && productData[productId]) {
+        const freeToUse = productData[productId].free_to_use;
+        const reserved = productData[productId].reserved;
+        if (quantity > freeToUse) {
+            warning.style.display = 'block';
+            document.getElementById('qty-warning-text').textContent = 
+                'Cannot remove ' + quantity + ' units. Only ' + freeToUse.toFixed(3).replace(/\.?0+$/, '') + 
+                ' units are available (Free-to-Use). ' + reserved.toFixed(3).replace(/\.?0+$/, '') + 
+                ' units are reserved by active orders.';
+            submitBtn.disabled = true;
+            submitBtn.style.opacity = '0.5';
+            return;
+        }
+    }
+    warning.style.display = 'none';
+    submitBtn.disabled = false;
+    submitBtn.style.opacity = '1';
+}
+
+// Init on page load
+document.addEventListener('DOMContentLoaded', function() {
+    const sel = document.getElementById('product_id');
+    if (sel.value) updateProductInfo(sel.value);
+});
+</script>
+
+<style>
+    .adjust-type-label:has(input:checked) {
+        border-color: var(--accent-primary) !important;
+        background: var(--accent-ultra-light);
+    }
+</style>
+
+<?php include __DIR__ . '/../../includes/footer.php'; ?>
