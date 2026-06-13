@@ -48,6 +48,9 @@ define('ACTION_DELETE', 'DELETE');
 define('ACTION_LOCKED', 'ACCOUNT_LOCKED');
 define('ACTION_STOCK_ADJUST', 'STOCK_ADJUST');
 define('ACTION_DEACTIVATE', 'DEACTIVATE');
+define('ACTION_PO_CONFIRM', 'PO_CONFIRM');
+define('ACTION_PO_RECEIVE', 'PO_RECEIVE');
+define('ACTION_PO_CANCEL', 'PO_CANCEL');
 
 // ─── Session Initialization ────────────────────────────────────────────────
 if (session_status() === PHP_SESSION_NONE) {
