@@ -134,18 +134,20 @@ include __DIR__ . '/../../includes/header.php';
                 <tr>
                     <th>Date</th>
                     <th>Product</th>
-                    <th>Type</th>
-                    <th style="text-align:right;">Qty</th>
-                    <th style="text-align:right;">Before</th>
-                    <th style="text-align:right;">After</th>
-                    <th>Reference</th>
-                    <th>Notes</th>
+                    <th>Movement Type</th>
+                    <th>Direction</th>
+                    <th>Reference Number</th>
+                    <th style="text-align:right;">Quantity</th>
+                    <th style="text-align:right;">Qty Before</th>
+                    <th style="text-align:right;">Qty After</th>
+                    <th style="text-align:right;">Unit Cost</th>
+                    <th style="text-align:right;">Movement Value</th>
                     <th>User</th>
                 </tr>
             </thead>
             <tbody>
                 <?php if (empty($movements)): ?>
-                    <tr><td colspan="9"><div class="empty-state" style="padding:40px;"><div class="empty-state-icon"><i class="fa-solid fa-arrow-right-arrow-left"></i></div><h3>No Movements</h3><p>No stock movements match the current filters.</p></div></td></tr>
+                    <tr><td colspan="11"><div class="empty-state" style="padding:40px;"><div class="empty-state-icon"><i class="fa-solid fa-arrow-right-arrow-left"></i></div><h3>No Movements</h3><p>No stock movements match the current filters.</p></div></td></tr>
                 <?php else: ?>
                     <?php foreach ($movements as $mv): ?>
                         <tr>
@@ -154,15 +156,27 @@ include __DIR__ . '/../../includes/header.php';
                                 <a href="<?= BASE_URL ?>/modules/products/view.php?id=<?= $mv['product_id'] ?>" style="font-weight:500; color:var(--text-primary);"><?= e($mv['product_name']) ?></a>
                                 <div style="font-size:0.7rem; font-family:'Fira Code',monospace; color:var(--accent-primary);"><?= e($mv['product_code']) ?></div>
                             </td>
-                            <td><span class="badge badge-<?= in_array($mv['movement_type'], ['purchase_in','manufacturing_in','initial']) ? 'success' : (in_array($mv['movement_type'], ['sales_out','manufacturing_consume']) ? 'danger' : 'info') ?>"><?= e(str_replace('_', ' ', ucfirst($mv['movement_type']))) ?></span></td>
+                            <td><span class="badge badge-primary"><?= e(str_replace('_', ' ', ucfirst($mv['movement_type']))) ?></span></td>
+                            <td>
+                                <?php if ($mv['quantity'] > 0): ?>
+                                    <span class="badge badge-success" style="font-size: 0.6875rem;"><i class="fa-solid fa-arrow-down"></i> IN</span>
+                                <?php elseif ($mv['quantity'] < 0): ?>
+                                    <span class="badge badge-danger" style="font-size: 0.6875rem;"><i class="fa-solid fa-arrow-up"></i> OUT</span>
+                                <?php else: ?>
+                                    <span class="badge badge-secondary" style="font-size: 0.6875rem;">NO CHANGE</span>
+                                <?php endif; ?>
+                            </td>
+                            <td style="font-size:0.8125rem; color:var(--text-muted); font-weight: 500;">
+                                <?= $mv['reference_type'] ? e($mv['reference_type']) . ($mv['reference_id'] ? ' #' . $mv['reference_id'] : '') : 'Manual' ?>
+                            </td>
                             <td style="text-align:right; font-weight:600; font-size:0.9375rem; color:var(--color-<?= $mv['quantity'] >= 0 ? 'success' : 'danger' ?>);">
                                 <?= $mv['quantity'] >= 0 ? '+' : '' ?><?= fmt_qty($mv['quantity']) ?>
                                 <span style="font-size:0.7rem; color:var(--text-muted); font-weight:400;"><?= e($mv['uom']) ?></span>
                             </td>
                             <td style="text-align:right; font-size:0.8125rem; color:var(--text-muted);"><?= fmt_qty($mv['qty_before']) ?></td>
                             <td style="text-align:right; font-size:0.8125rem; font-weight:500;"><?= fmt_qty($mv['qty_after']) ?></td>
-                            <td style="font-size:0.8125rem; color:var(--text-muted);"><?= $mv['reference_type'] ? e($mv['reference_type']) : '—' ?></td>
-                            <td style="font-size:0.8125rem; color:var(--text-muted); max-width:180px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="<?= $mv['notes'] ? e($mv['notes']) : '' ?>"><?= $mv['notes'] ? e($mv['notes']) : '—' ?></td>
+                            <td style="text-align:right; font-size:0.8125rem; font-weight:500;"><?= $mv['unit_cost'] !== null ? fmt_price($mv['unit_cost']) : '—' ?></td>
+                            <td style="text-align:right; font-size:0.8125rem; font-weight:600; color:var(--text-primary);"><?= $mv['movement_value'] !== null ? fmt_price($mv['movement_value']) : '—' ?></td>
                             <td style="font-size:0.8125rem;"><?= $mv['user_name'] ? e($mv['user_name']) : '—' ?></td>
                         </tr>
                     <?php endforeach; ?>

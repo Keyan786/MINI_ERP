@@ -129,7 +129,8 @@ if (is_post()) {
                         'Purchase Order',
                         $poId,
                         'PO #' . $po['po_number'] . ' — Goods Receipt',
-                        $userId
+                        $userId,
+                        (float)$line['cost_price']
                     );
 
                     $oldValues[$line['product_code']] = ['received_qty' => (float)$line['received_qty']];

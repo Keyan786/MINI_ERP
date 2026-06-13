@@ -1,0 +1,32 @@
+================================================================================
+Date: 2026-06-13 21:33:25
+To: jane.doe@example.com
+Subject: Your ERP account has been created
+Message:
+
+                    <h2>Welcome to Mini ERP, Jane Doe!</h2>
+                    <p>Your ERP account has been created by the system administrator.</p>
+                    <p>Click the link below to set up your password and activate your account:</p>
+                    <p><a href='http://localhost/MiniERP/auth/setup_password.php?token=6d882d36fe1142a823a12cba4837ff9931889a4c109c66a864810b1809f064c7' style='display:inline-block; padding:10px 16px; background:#3b82f6; color:#ffffff; text-decoration:none; border-radius:4px; font-weight:600;'>Create Your Password</a></p>
+                    <p>This invitation link will expire in 24 hours.</p>
+                    <hr style='border:none; border-top:1px solid #e2e8f0; margin:20px 0;'>
+                    <p style='font-size:0.75rem; color:#64748b;'>If the button above does not work, copy and paste the link below into your browser:<br>http://localhost/MiniERP/auth/setup_password.php?token=6d882d36fe1142a823a12cba4837ff9931889a4c109c66a864810b1809f064c7</p>
+                
+================================================================================
+
+================================================================================
+Date: 2026-06-13 21:53:12
+To: garasiyali786@gmail.com
+Subject: Your ERP account has been created
+Message:
+
+                    <h2>Welcome to Mini ERP, 1234!</h2>
+                    <p>Your ERP account has been created by the system administrator.</p>
+                    <p>Click the link below to set up your password and activate your account:</p>
+                    <p><a href='http://localhost/MiniERP/auth/setup_password.php?token=960e5b7664e49e12dda22e48719657126a70887403d206de5ec573fe7780a66f' style='display:inline-block; padding:10px 16px; background:#3b82f6; color:#ffffff; text-decoration:none; border-radius:4px; font-weight:600;'>Create Your Password</a></p>
+                    <p>This invitation link will expire in 24 hours.</p>
+                    <hr style='border:none; border-top:1px solid #e2e8f0; margin:20px 0;'>
+                    <p style='font-size:0.75rem; color:#64748b;'>If the button above does not work, copy and paste the link below into your browser:<br>http://localhost/MiniERP/auth/setup_password.php?token=960e5b7664e49e12dda22e48719657126a70887403d206de5ec573fe7780a66f</p>
+                
+================================================================================
+

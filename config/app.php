@@ -20,10 +20,10 @@ define('BCRYPT_COST', 12);
 define('CSRF_TOKEN_NAME', 'csrf_token');
 
 // ─── User Status Constants ──────────────────────────────────────────────────
-define('STATUS_PENDING', 'pending');
+define('STATUS_PENDING_SETUP', 'pending_setup');
 define('STATUS_ACTIVE', 'active');
-define('STATUS_REJECTED', 'rejected');
-define('STATUS_SUSPENDED', 'suspended');
+define('STATUS_INACTIVE', 'inactive');
+define('STATUS_LOCKED', 'locked');
 
 // ─── Approval Request Types ─────────────────────────────────────────────────
 define('REQUEST_REGISTRATION', 'registration');
@@ -51,6 +51,35 @@ define('ACTION_DEACTIVATE', 'DEACTIVATE');
 define('ACTION_PO_CONFIRM', 'PO_CONFIRM');
 define('ACTION_PO_RECEIVE', 'PO_RECEIVE');
 define('ACTION_PO_CANCEL', 'PO_CANCEL');
+
+// ─── User Management Audit Actions ──────────────────────────────────────────
+define('ACTION_USER_CREATED', 'USER_CREATED');
+define('ACTION_INVITE_SENT', 'INVITE_SENT');
+define('ACTION_INVITE_RESENT', 'INVITE_RESENT');
+define('ACTION_PASSWORD_CREATED', 'PASSWORD_CREATED');
+define('ACTION_PASSWORD_RESET_REQ', 'PASSWORD_RESET_REQ');
+define('ACTION_PASSWORD_CHANGED', 'PASSWORD_CHANGED');
+define('ACTION_FORCE_PASS_CHANGE', 'FORCE_PASS_CHANGE');
+define('ACTION_USER_ACTIVATED', 'USER_ACTIVATED');
+define('ACTION_USER_DEACTIVATED', 'USER_DEACTIVATED');
+define('ACTION_USER_LOCKED', 'USER_LOCKED');
+
+// ─── Sales Audit Actions ────────────────────────────────────────────────────
+define('ACTION_SO_CREATE', 'SO_CREATE');
+define('ACTION_SO_CONFIRM', 'SO_CONFIRM');
+define('ACTION_SO_DELIVER', 'SO_DELIVER');
+define('ACTION_SO_CANCEL', 'SO_CANCEL');
+define('ACTION_SO_UPDATE_LINE', 'SO_UPDATE_LINE');
+
+// ─── Manufacturing Audit Actions ────────────────────────────────────────────
+define('ACTION_MO_CONFIRM', 'MO_CONFIRM');
+define('ACTION_MO_PRODUCE', 'MO_PRODUCE');
+define('ACTION_MO_CANCEL', 'MO_CANCEL');
+define('ACTION_MO_UPDATE', 'MO_UPDATE');
+define('ACTION_MO_CONSUME', 'MO_CONSUME');
+define('ACTION_BOM_CREATE', 'BOM_CREATE');
+define('ACTION_BOM_UPDATE', 'BOM_UPDATE');
+define('ACTION_BOM_DELETE', 'BOM_DELETE');
 
 // ─── Session Initialization ────────────────────────────────────────────────
 if (session_status() === PHP_SESSION_NONE) {

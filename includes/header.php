@@ -46,7 +46,7 @@ $currentModule = $currentModule ?? '';
                     <h2 class="navbar-title"><?= e($pageTitle) ?></h2>
                 </div>
                 <div class="navbar-right">
-                    <span style="font-size:0.8125rem; color:var(--text-muted);">
+                    <span style="font-size:0.8125rem; color:var(--text-muted); margin-right: 15px;">
                         <i class="fa-regular fa-clock" style="margin-right:4px;"></i>
                         <span id="live-clock"></span>
                     </span>

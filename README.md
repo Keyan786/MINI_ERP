@@ -21,11 +21,18 @@ A modular, role-based Enterprise Resource Planning system built with **PHP**, **
 ### Inventory & Product Management
 - **Product catalog** — Full CRUD with auto-generated product codes (category-based prefixes: `RM-0001`, `FG-0002`, etc.)
 - **Category & vendor management** — With referential integrity checks (delete protection when linked to products)
+- **Procurement Configuration** — Configure replenishment strategies per product via "Procure on Demand" with purchase (requires Default Vendor) or manufacturing (requires future Bill of Materials) routing
 - **Stock tracking** — On-Hand Quantity, Reserved Quantity, and calculated Free-to-Use Quantity
 - **Stock status engine** — Automatic classification: In Stock / Low Stock / Out of Stock based on per-product minimum stock levels
 - **Manual stock adjustments** — With negative stock prevention (validates against Free-to-Use Quantity)
 - **Stock movement log** — Complete audit trail of all inventory changes with before/after quantities
 - **Concurrency safety** — `SELECT ... FOR UPDATE` row-level locking during stock updates
+
+### Purchase Management (Procurement)
+- **Vendor management** — Create and maintain suppliers/vendors records inline or through the inventory module
+- **Purchase Orders (PO)** — Complete PO lifecycle: Draft, Confirmed, Partially Received, Fully Received, and Cancelled
+- **Dual total calculation** — Tracks both ordered value (Ordered Qty × Cost Price) and received value (Received Qty × Cost Price)
+- **Audit tracking** — Records the user and exact timestamp when a PO is confirmed (`confirmed_by`/`confirmed_at`) and received (`received_by`/`received_at`)
 
 ### Audit System
 - **Comprehensive audit logging** — Every create, update, delete, login, logout, approval, and stock adjustment is recorded
@@ -35,7 +42,7 @@ A modular, role-based Enterprise Resource Planning system built with **PHP**, **
 ### UI / UX
 - **Modern design** — White and light blue color scheme with glassmorphism on auth cards
 - **Responsive layout** — Sidebar navigation with mobile support
-- **Dynamic interactions** — Real-time calculations, live clock, flash messages, micro-animations
+- **Dynamic interactions** — Real-time calculations, live clock, flash messages, micro-animations, and inline vendor creation modals
 - **Google Fonts** — Inter + Outfit typography
 
 ---
@@ -90,16 +97,22 @@ MiniERP/
 │   │   ├── index.php           # Inventory overview dashboard
 │   │   ├── movements.php       # Stock movement history
 │   │   └── vendors.php         # Vendor CRUD
-│   └── products/
-│       ├── categories.php      # Category management with modals
-│       ├── create.php          # New product form
-│       ├── delete.php          # Soft-delete (deactivate) product
-│       ├── edit.php            # Edit product with field-level audit
-│       ├── index.php           # Product catalog with search & filters
-│       └── view.php            # Product detail with stock movement history
+│   ├── products/
+│   │   ├── categories.php      # Category management with modals
+│   │   ├── create.php          # New product form
+│   │   ├── delete.php          # Soft-delete (deactivate) product
+│   │   ├── edit.php            # Edit product with field-level audit
+│   │   ├── index.php           # Product catalog with search & filters
+│   │   └── view.php            # Product detail with stock movement history
+│   └── purchase/
+│       ├── ajax_create_vendor.php # AJAX endpoint for inline vendor creation
+│       ├── create.php          # New Purchase Order form with inline vendor add
+│       ├── index.php           # Purchase Order list, tabs, search, pagination
+│       └── view.php            # View, confirm, cancel, and receive goods on PO
 ├── setup/
 │   ├── install.php             # Full database installation (8 tables + seed data)
-│   └── migrate_inventory.php   # Inventory module migration (4 tables + seed)
+│   ├── migrate_inventory.php   # Inventory module migration (4 tables + seed)
+│   └── migrate_purchase.php    # Purchase module migration (2 tables)
 ├── db.php                      # Database connection
 ├── index.php                   # Entry point (redirects to login)
 └── .gitignore
@@ -130,6 +143,13 @@ MiniERP/
 | `tbl_vendors` | Supplier/vendor records |
 | `tbl_products` | Product master with pricing, stock levels, procurement config |
 | `tbl_stock_movements` | Detailed stock transaction log |
+
+### Purchase Tables (2)
+
+| Table | Purpose |
+|-------|---------|
+| `tbl_purchase_orders` | Purchase order headers with status, snaps, totals, and logs |
+| `tbl_purchase_order_lines` | Individual lines tracking product snapshots, ordered/received quantities, and pricing |
 
 ---
 
@@ -180,7 +200,17 @@ MiniERP/
    php C:\xampp\htdocs\MiniERP\setup\migrate_inventory.php
    ```
 
-6. **Login**
+6. **Run the purchase migration**
+
+   Visit or run via CLI:
+   ```
+   http://localhost/MiniERP/setup/migrate_purchase.php
+   ```
+   ```bash
+   php C:\xampp\htdocs\MiniERP\setup\migrate_purchase.php
+   ```
+
+7. **Login**
    ```
    URL:      http://localhost/MiniERP/auth/login.php
    Email:    admin@gmail.com
@@ -242,7 +272,6 @@ Stock removals (manual adjustments) are validated against Free-to-Use Quantity, 
 
 ## Upcoming Modules
 
-- **Purchase Management** — Purchase orders, goods receipt, vendor procurement
 - **Sales Management** — Sales orders, delivery tracking, invoicing
 - **Manufacturing** — Production orders, work orders, BOM consumption
 - **Bill of Materials** — Multi-level BOM with component management

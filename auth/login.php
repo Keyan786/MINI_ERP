@@ -29,7 +29,7 @@ if (is_post()) {
             $errors[] = 'Please enter both email and password.';
         } else {
             // Find user by email
-            $stmt = $conn->prepare("SELECT user_id, full_name, email, password_hash, status, role_id, failed_login_attempts, locked_until FROM tbl_users WHERE email = ?");
+            $stmt = $conn->prepare("SELECT user_id, full_name, email, password_hash, status, role_id, failed_login_attempts, locked_until, force_password_change FROM tbl_users WHERE email = ?");
             $stmt->bind_param("s", $email);
             $stmt->execute();
             $user = $stmt->get_result()->fetch_assoc();
@@ -43,12 +43,12 @@ if (is_post()) {
                     $remaining = ceil((strtotime($user['locked_until']) - time()) / 60);
                     $errors[] = "Account is locked. Try again in $remaining minute(s).";
                     log_action($conn, 'Authentication', ACTION_LOGIN_FAILED, 'User', $user['user_id'], null, ['reason' => 'Account locked', 'email' => $email]);
-                } elseif ($user['status'] === STATUS_PENDING) {
-                    $errors[] = 'Your account is pending admin approval. Please wait for approval.';
-                } elseif ($user['status'] === STATUS_REJECTED) {
-                    $errors[] = 'Your account has been rejected. Please contact the administrator.';
-                } elseif ($user['status'] === STATUS_SUSPENDED) {
-                    $errors[] = 'Your account has been suspended. Please contact the administrator.';
+                } elseif ($user['status'] === STATUS_PENDING_SETUP) {
+                    $errors[] = 'Your account is pending password setup. Please check your email for the invitation link.';
+                } elseif ($user['status'] === STATUS_INACTIVE) {
+                    $errors[] = 'Your account has been deactivated. Please contact the administrator.';
+                } elseif ($user['status'] === STATUS_LOCKED) {
+                    $errors[] = 'Your account has been locked. Please contact the administrator.';
                 } elseif (!password_verify($password, $user['password_hash'])) {
                     // Wrong password — increment failed attempts
                     $attempts = $user['failed_login_attempts'] + 1;
@@ -115,8 +115,14 @@ if (is_post()) {
                     // Audit log
                     log_action($conn, 'Authentication', ACTION_LOGIN, 'User', $user['user_id'], null, ['ip' => $ip]);
 
-                    set_flash('success', 'Welcome back, ' . $user['full_name'] . '!');
-                    redirect('/dashboard/index.php');
+                    if ($user['force_password_change']) {
+                        $_SESSION['force_password_change'] = true;
+                        set_flash('info', 'Your administrator requires you to change your password before continuing.');
+                        redirect('/auth/change_password.php');
+                    } else {
+                        set_flash('success', 'Welcome back, ' . $user['full_name'] . '!');
+                        redirect('/dashboard/index.php');
+                    }
                 }
             }
         }
@@ -142,7 +148,7 @@ if (is_post()) {
     <div class="auth-wrapper">
         <div class="auth-card animate-in">
             <div class="auth-header">
-                <div class="auth-logo"><i class="fa-solid fa-cubes"></i></div>
+                <div class="auth-logo"><img src="<?= BASE_URL ?>/assets/images/logo.jpeg" alt="Logo"></div>
                 <h1>Welcome Back</h1>
                 <p>Sign in to your Mini ERP account</p>
             </div>
@@ -182,8 +188,8 @@ if (is_post()) {
                 </form>
             </div>
 
-            <div class="auth-footer">
-                Don't have an account? <a href="<?= BASE_URL ?>/auth/signup.php">Create one</a>
+            <div class="auth-footer" style="min-height: 20px;">
+                <!-- Public signup removed -->
             </div>
         </div>
     </div>

@@ -25,10 +25,11 @@ function update_stock(
     ?string $refType = null,
     ?int $refId = null,
     ?string $notes = null,
-    ?int $userId = null
+    ?int $userId = null,
+    ?float $unitCost = null
 ): bool {
-    // Get current on-hand qty
-    $stmt = $conn->prepare("SELECT on_hand_qty FROM tbl_products WHERE product_id = ? FOR UPDATE");
+    // Get current on-hand qty and default cost_price
+    $stmt = $conn->prepare("SELECT on_hand_qty, cost_price FROM tbl_products WHERE product_id = ? FOR UPDATE");
     $stmt->bind_param("i", $productId);
     $stmt->execute();
     $result = $stmt->get_result()->fetch_assoc();
@@ -39,6 +40,11 @@ function update_stock(
     $qtyBefore = (float)$result['on_hand_qty'];
     $qtyAfter = $qtyBefore + $qty;
 
+    if ($unitCost === null) {
+        $unitCost = (float)$result['cost_price'];
+    }
+    $movementValue = abs($qty) * $unitCost;
+
     // Update product on-hand qty
     $stmt = $conn->prepare("UPDATE tbl_products SET on_hand_qty = ? WHERE product_id = ?");
     $stmt->bind_param("di", $qtyAfter, $productId);
@@ -46,8 +52,8 @@ function update_stock(
     $stmt->close();
 
     // Create stock movement record
-    $stmt = $conn->prepare("INSERT INTO tbl_stock_movements (product_id, movement_type, reference_type, reference_id, quantity, qty_before, qty_after, notes, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
-    $stmt->bind_param("issidddsi", $productId, $movementType, $refType, $refId, $qty, $qtyBefore, $qtyAfter, $notes, $userId);
+    $stmt = $conn->prepare("INSERT INTO tbl_stock_movements (product_id, movement_type, reference_type, reference_id, quantity, qty_before, qty_after, unit_cost, movement_value, notes, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+    $stmt->bind_param("issidddddsi", $productId, $movementType, $refType, $refId, $qty, $qtyBefore, $qtyAfter, $unitCost, $movementValue, $notes, $userId);
     $stmt->execute();
     $stmt->close();
 
@@ -162,19 +168,21 @@ function audit_product_changes(array $oldData, array $newData, array $trackedFie
 
 /**
  * Recalculate reserved qty for a product.
- * Placeholder: will be implemented when Sales/Manufacturing modules are built.
- * Formula: SUM(ordered_qty - delivered_qty) from active Sales Orders
- *        + SUM(required_qty - consumed_qty) from active Manufacturing Orders
+ * Aggregates from tbl_mo_components for active (confirmed) manufacturing orders.
+ * Formula: SUM(required_qty - consumed_qty) from confirmed MOs
  */
 function recalculate_reserved_qty(mysqli $conn, int $productId): float {
-    // Future: aggregate from tbl_sales_order_lines + tbl_manufacturing_order_components
-    // For now, return current stored value
-    $stmt = $conn->prepare("SELECT reserved_qty FROM tbl_products WHERE product_id = ?");
+    $stmt = $conn->prepare("
+        SELECT COALESCE(SUM(mc.required_qty - mc.consumed_qty), 0) as reserved
+        FROM tbl_mo_components mc
+        JOIN tbl_manufacturing_orders mo ON mc.mo_id = mo.mo_id
+        WHERE mc.product_id = ? AND mo.status = 'confirmed'
+    ");
     $stmt->bind_param("i", $productId);
     $stmt->execute();
     $result = $stmt->get_result()->fetch_assoc();
     $stmt->close();
-    return (float)($result['reserved_qty'] ?? 0);
+    return (float)($result['reserved'] ?? 0);
 }
 
 /**

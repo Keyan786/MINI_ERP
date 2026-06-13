@@ -187,9 +187,12 @@ include __DIR__ . '/../../includes/header.php';
                 <tr>
                     <th>Date</th>
                     <th>Type</th>
-                    <th style="text-align:right;">Qty</th>
-                    <th style="text-align:right;">Before</th>
-                    <th style="text-align:right;">After</th>
+                    <th>Direction</th>
+                    <th style="text-align:right;">Quantity</th>
+                    <th style="text-align:right;">Qty Before</th>
+                    <th style="text-align:right;">Qty After</th>
+                    <th style="text-align:right;">Unit Cost</th>
+                    <th style="text-align:right;">Movement Value</th>
                     <th>Reference</th>
                     <th>Notes</th>
                     <th>User</th>
@@ -197,17 +200,28 @@ include __DIR__ . '/../../includes/header.php';
             </thead>
             <tbody>
                 <?php if (empty($movements)): ?>
-                    <tr><td colspan="8"><div class="empty-state" style="padding:30px;"><p style="color:var(--text-muted);">No stock movements recorded yet.</p></div></td></tr>
+                    <tr><td colspan="11"><div class="empty-state" style="padding:30px;"><p style="color:var(--text-muted);">No stock movements recorded yet.</p></div></td></tr>
                 <?php else: ?>
                     <?php foreach ($movements as $mv): ?>
                         <tr>
                             <td style="font-size:0.8125rem; white-space:nowrap;"><?= format_datetime($mv['created_at']) ?></td>
-                            <td><span class="badge badge-<?= in_array($mv['movement_type'], ['purchase_in','manufacturing_in','initial']) ? 'success' : (in_array($mv['movement_type'], ['sales_out','manufacturing_consume']) ? 'danger' : 'info') ?>"><?= e(str_replace('_', ' ', ucfirst($mv['movement_type']))) ?></span></td>
+                            <td><span class="badge badge-primary"><?= e(str_replace('_', ' ', ucfirst($mv['movement_type']))) ?></span></td>
+                            <td>
+                                <?php if ($mv['quantity'] > 0): ?>
+                                    <span class="badge badge-success" style="font-size: 0.6875rem;"><i class="fa-solid fa-arrow-down"></i> IN</span>
+                                <?php elseif ($mv['quantity'] < 0): ?>
+                                    <span class="badge badge-danger" style="font-size: 0.6875rem;"><i class="fa-solid fa-arrow-up"></i> OUT</span>
+                                <?php else: ?>
+                                    <span class="badge badge-secondary" style="font-size: 0.6875rem;">NO CHANGE</span>
+                                <?php endif; ?>
+                            </td>
                             <td style="text-align:right; font-weight:600; color:var(--color-<?= $mv['quantity'] >= 0 ? 'success' : 'danger' ?>);">
                                 <?= $mv['quantity'] >= 0 ? '+' : '' ?><?= fmt_qty($mv['quantity']) ?>
                             </td>
                             <td style="text-align:right; font-size:0.8125rem; color:var(--text-muted);"><?= fmt_qty($mv['qty_before']) ?></td>
                             <td style="text-align:right; font-size:0.8125rem; font-weight:500;"><?= fmt_qty($mv['qty_after']) ?></td>
+                            <td style="text-align:right; font-size:0.8125rem; font-weight:500;"><?= $mv['unit_cost'] !== null ? fmt_price($mv['unit_cost']) : '—' ?></td>
+                            <td style="text-align:right; font-size:0.8125rem; font-weight:600; color:var(--text-primary);"><?= $mv['movement_value'] !== null ? fmt_price($mv['movement_value']) : '—' ?></td>
                             <td style="font-size:0.8125rem; color:var(--text-muted);"><?= $mv['reference_type'] ? e($mv['reference_type']) . ($mv['reference_id'] ? ' #' . $mv['reference_id'] : '') : '—' ?></td>
                             <td style="font-size:0.8125rem; color:var(--text-muted); max-width:200px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;"><?= $mv['notes'] ? e($mv['notes']) : '—' ?></td>
                             <td style="font-size:0.8125rem;"><?= $mv['user_name'] ? e($mv['user_name']) : '—' ?></td>

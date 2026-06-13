@@ -80,7 +80,7 @@ if (is_post()) {
 
                 // Create initial stock movement if qty > 0
                 if ($initialQty > 0) {
-                    update_stock($conn, $newProductId, $initialQty, 'initial', 'Manual', null, 'Initial stock on product creation', $userId);
+                    update_stock($conn, $newProductId, $initialQty, 'initial', 'Manual', null, 'Initial stock on product creation', $userId, $costPrice);
                 }
 
                 // Audit log

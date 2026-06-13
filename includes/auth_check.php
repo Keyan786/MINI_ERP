@@ -18,7 +18,7 @@ if (!isset($_SESSION['user_id']) || !isset($_SESSION['logged_in']) || $_SESSION[
 }
 
 // Verify user still exists and is active in the database
-$stmt = $conn->prepare("SELECT u.user_id, u.full_name, u.email, u.status, u.role_id, r.role_name 
+$stmt = $conn->prepare("SELECT u.user_id, u.full_name, u.email, u.status, u.role_id, u.permissions_updated_at, r.role_name 
                          FROM tbl_users u 
                          LEFT JOIN tbl_roles r ON u.role_id = r.role_id 
                          WHERE u.user_id = ?");
@@ -42,9 +42,12 @@ $_SESSION['user_email'] = $currentUser['email'];
 $_SESSION['role_id'] = $currentUser['role_id'];
 $_SESSION['role_name'] = $currentUser['role_name'];
 
-// Load user permissions into session (refresh periodically)
-if (!isset($_SESSION['permissions_loaded']) || (time() - ($_SESSION['permissions_loaded'] ?? 0)) > 300) {
-    $_SESSION['permissions'] = load_user_permissions($conn, $currentUser['role_id']);
+// Load user permissions into session (refresh periodically or if updated)
+$cacheAge = time() - ($_SESSION['permissions_loaded'] ?? 0);
+$updatedTime = $currentUser['permissions_updated_at'] ? strtotime($currentUser['permissions_updated_at']) : 0;
+
+if (!isset($_SESSION['permissions_loaded']) || $cacheAge > 300 || $updatedTime > $_SESSION['permissions_loaded']) {
+    $_SESSION['permissions'] = load_user_permissions($conn, $currentUser['user_id']);
     $_SESSION['permissions_loaded'] = time();
 }
 ?>
