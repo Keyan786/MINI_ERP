@@ -5,21 +5,24 @@
  */
 
 /**
- * Update stock for a product and create a stock movement record.
+ * Update stock for a product in a specific warehouse and create a stock movement record.
  *
  * @param mysqli  $conn         Database connection
  * @param int     $productId    Product ID
+ * @param int     $warehouseId  Warehouse ID
  * @param float   $qty          Quantity change (positive = in, negative = out)
  * @param string  $movementType Movement type enum value
  * @param string|null $refType  Reference type (e.g., 'Manual', 'Purchase Order')
  * @param int|null    $refId    Reference document ID
  * @param string|null $notes    Notes/reason
  * @param int|null    $userId   User performing the action
+ * @param float|null  $unitCost Optional unit cost
  * @return bool Success
  */
 function update_stock(
     mysqli $conn,
     int $productId,
+    int $warehouseId,
     float $qty,
     string $movementType,
     ?string $refType = null,
@@ -28,36 +31,91 @@ function update_stock(
     ?int $userId = null,
     ?float $unitCost = null
 ): bool {
-    // Get current on-hand qty and default cost_price
-    $stmt = $conn->prepare("SELECT on_hand_qty, cost_price FROM tbl_products WHERE product_id = ? FOR UPDATE");
+    // 1. Get default cost_price
+    $stmt = $conn->prepare("SELECT cost_price FROM tbl_products WHERE product_id = ?");
     $stmt->bind_param("i", $productId);
     $stmt->execute();
-    $result = $stmt->get_result()->fetch_assoc();
+    $prodResult = $stmt->get_result()->fetch_assoc();
     $stmt->close();
-
-    if (!$result) return false;
-
-    $qtyBefore = (float)$result['on_hand_qty'];
-    $qtyAfter = $qtyBefore + $qty;
+    
+    if (!$prodResult) return false;
 
     if ($unitCost === null) {
-        $unitCost = (float)$result['cost_price'];
+        $unitCost = (float)$prodResult['cost_price'];
     }
     $movementValue = abs($qty) * $unitCost;
 
-    // Update product on-hand qty
-    $stmt = $conn->prepare("UPDATE tbl_products SET on_hand_qty = ? WHERE product_id = ?");
-    $stmt->bind_param("di", $qtyAfter, $productId);
+    // 2. Fetch or create warehouse stock row
+    $stmt = $conn->prepare("SELECT on_hand_qty FROM tbl_product_warehouse_stock WHERE product_id = ? AND warehouse_id = ? FOR UPDATE");
+    $stmt->bind_param("ii", $productId, $warehouseId);
     $stmt->execute();
+    $wsResult = $stmt->get_result()->fetch_assoc();
     $stmt->close();
 
-    // Create stock movement record
-    $stmt = $conn->prepare("INSERT INTO tbl_stock_movements (product_id, movement_type, reference_type, reference_id, quantity, qty_before, qty_after, unit_cost, movement_value, notes, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
-    $stmt->bind_param("issidddddsi", $productId, $movementType, $refType, $refId, $qty, $qtyBefore, $qtyAfter, $unitCost, $movementValue, $notes, $userId);
+    $qtyBefore = 0.000;
+    if ($wsResult) {
+        $qtyBefore = (float)$wsResult['on_hand_qty'];
+        $qtyAfter = $qtyBefore + $qty;
+        $stmt = $conn->prepare("UPDATE tbl_product_warehouse_stock SET on_hand_qty = ? WHERE product_id = ? AND warehouse_id = ?");
+        $stmt->bind_param("dii", $qtyAfter, $productId, $warehouseId);
+        $stmt->execute();
+        $stmt->close();
+    } else {
+        $qtyAfter = $qty;
+        $stmt = $conn->prepare("INSERT INTO tbl_product_warehouse_stock (product_id, warehouse_id, on_hand_qty, reserved_qty) VALUES (?, ?, ?, 0)");
+        $stmt->bind_param("iid", $productId, $warehouseId, $qtyAfter);
+        $stmt->execute();
+        $stmt->close();
+    }
+
+    // 3. Update global cached on_hand_qty
+    sync_global_stock_cache($conn, $productId);
+
+    // 4. Create stock movement record
+    $stmt = $conn->prepare("INSERT INTO tbl_stock_movements (product_id, warehouse_id, movement_type, reference_type, reference_id, quantity, qty_before, qty_after, unit_cost, movement_value, notes, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+    $stmt->bind_param("iissidddddsi", $productId, $warehouseId, $movementType, $refType, $refId, $qty, $qtyBefore, $qtyAfter, $unitCost, $movementValue, $notes, $userId);
     $stmt->execute();
     $stmt->close();
 
     return true;
+}
+
+/**
+ * Reserve stock for a product in a specific warehouse.
+ */
+function reserve_stock(mysqli $conn, int $productId, int $warehouseId, float $qty): bool {
+    // Ensure row exists
+    $stmt = $conn->prepare("INSERT IGNORE INTO tbl_product_warehouse_stock (product_id, warehouse_id, on_hand_qty, reserved_qty) VALUES (?, ?, 0, 0)");
+    $stmt->bind_param("ii", $productId, $warehouseId);
+    $stmt->execute();
+    $stmt->close();
+
+    // Update reserved_qty
+    $stmt = $conn->prepare("UPDATE tbl_product_warehouse_stock SET reserved_qty = reserved_qty + ? WHERE product_id = ? AND warehouse_id = ?");
+    $stmt->bind_param("dii", $qty, $productId, $warehouseId);
+    $stmt->execute();
+    $stmt->close();
+
+    // Update global cached reserved_qty
+    sync_global_stock_cache($conn, $productId);
+
+    return true;
+}
+
+/**
+ * Sync global cached on_hand_qty and reserved_qty in tbl_products based on warehouse data.
+ */
+function sync_global_stock_cache(mysqli $conn, int $productId): void {
+    $stmt = $conn->prepare("
+        UPDATE tbl_products p
+        SET 
+            p.on_hand_qty = (SELECT COALESCE(SUM(on_hand_qty), 0) FROM tbl_product_warehouse_stock WHERE product_id = p.product_id),
+            p.reserved_qty = (SELECT COALESCE(SUM(reserved_qty), 0) FROM tbl_product_warehouse_stock WHERE product_id = p.product_id)
+        WHERE p.product_id = ?
+    ");
+    $stmt->bind_param("i", $productId);
+    $stmt->execute();
+    $stmt->close();
 }
 
 /**
@@ -167,9 +225,8 @@ function audit_product_changes(array $oldData, array $newData, array $trackedFie
 }
 
 /**
- * Recalculate reserved qty for a product.
- * Aggregates from tbl_mo_components for active (confirmed) manufacturing orders.
- * Formula: SUM(required_qty - consumed_qty) from confirmed MOs
+ * Recalculate reserved qty for a product across all warehouses, or globally.
+ * (This is no longer directly used for Multi-Warehouse but kept for backward compatibility if needed, though reserve_stock should be used)
  */
 function recalculate_reserved_qty(mysqli $conn, int $productId): float {
     $stmt = $conn->prepare("

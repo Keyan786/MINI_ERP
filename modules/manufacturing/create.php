@@ -15,22 +15,31 @@ $errors = [];
 // Fetch data for dropdowns
 $products = $conn->query("SELECT product_id, product_code, product_name, uom FROM tbl_products WHERE is_active = 1 ORDER BY product_name")->fetch_all(MYSQLI_ASSOC);
 $users = $conn->query("SELECT user_id, full_name FROM tbl_users WHERE status = 'active' ORDER BY full_name")->fetch_all(MYSQLI_ASSOC);
+$warehouses = $conn->query("SELECT warehouse_id, warehouse_name FROM tbl_warehouses WHERE is_active = 1 ORDER BY warehouse_name")->fetch_all(MYSQLI_ASSOC);
 
 // All products JSON for manual component addition
-$allProducts = $conn->query("SELECT product_id, product_code, product_name, uom, cost_price, on_hand_qty, reserved_qty FROM tbl_products WHERE is_active = 1 ORDER BY product_name")->fetch_all(MYSQLI_ASSOC);
+$allProducts = $conn->query("SELECT product_id, product_code, product_name, uom, cost_price FROM tbl_products WHERE is_active = 1 ORDER BY product_name")->fetch_all(MYSQLI_ASSOC);
 $productJson = [];
 foreach ($allProducts as $p) {
-    $freeQty = get_free_qty((float)$p['on_hand_qty'], (float)$p['reserved_qty']);
     $productJson[$p['product_id']] = [
         'code' => $p['product_code'],
         'name' => $p['product_name'],
         'uom'  => $p['uom'],
         'cost_price' => (float)$p['cost_price'],
-        'on_hand' => (float)$p['on_hand_qty'],
-        'reserved' => (float)$p['reserved_qty'],
-        'free_qty' => $freeQty,
     ];
 }
+
+$stockData = [];
+$res = $conn->query("SELECT product_id, warehouse_id, on_hand_qty, reserved_qty FROM tbl_product_warehouse_stock");
+while ($r = $res->fetch_assoc()) {
+    $free = get_free_qty((float)$r['on_hand_qty'], (float)$r['reserved_qty']);
+    $stockData[$r['warehouse_id']][$r['product_id']] = [
+        'on_hand' => (float)$r['on_hand_qty'],
+        'reserved' => (float)$r['reserved_qty'],
+        'free_to_use' => $free
+    ];
+}
+$stockDataJson = json_encode($stockData);
 
 // ─── MO Number Generator ────────────────────────────────────────────────────
 function generate_mo_number(mysqli $conn): string {
@@ -58,6 +67,7 @@ if (is_post()) {
         $errors[] = 'Invalid security token.';
     } else {
         $productId = intval($_POST['product_id'] ?? 0);
+        $warehouseId = intval($_POST['warehouse_id'] ?? 0);
         $bomId = intval($_POST['bom_id'] ?? 0);
         $quantity = floatval($_POST['quantity'] ?? 0);
         $assignedUserId = intval($_POST['assigned_user_id'] ?? 0);
@@ -77,6 +87,7 @@ if (is_post()) {
 
         // Validate
         if ($productId <= 0) $errors[] = 'Please select a finished product.';
+        if ($warehouseId <= 0) $errors[] = 'Please select a production warehouse.';
         if ($quantity <= 0) $errors[] = 'Production quantity must be greater than zero.';
 
         // Validate components
@@ -116,8 +127,8 @@ if (is_post()) {
                 $pEnd = !empty($plannedEnd) ? $plannedEnd : null;
 
                 // Insert MO header
-                $stmt = $conn->prepare("INSERT INTO tbl_manufacturing_orders (mo_number, product_id, bom_id, quantity, assigned_user_id, planned_start, planned_end, notes, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
-                $stmt->bind_param("siidisssi", $moNumber, $productId, $bomIdVal, $quantity, $assignId, $pStart, $pEnd, $notes, $userId);
+                $stmt = $conn->prepare("INSERT INTO tbl_manufacturing_orders (mo_number, product_id, warehouse_id, bom_id, quantity, assigned_user_id, planned_start, planned_end, notes, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+                $stmt->bind_param("siiidisssi", $moNumber, $productId, $warehouseId, $bomIdVal, $quantity, $assignId, $pStart, $pEnd, $notes, $userId);
                 $stmt->execute();
                 $moId = $conn->insert_id;
                 $stmt->close();
@@ -229,6 +240,17 @@ include __DIR__ . '/../../includes/header.php';
                     <input type="number" name="quantity" id="mo_quantity" class="form-control" step="0.001" min="0.001"
                            value="<?= e($_POST['quantity'] ?? '') ?>" placeholder="0" required>
                 </div>
+                <div class="form-group">
+                    <label class="form-label">Production Warehouse <span style="color:var(--color-danger);">*</span></label>
+                    <select name="warehouse_id" id="warehouse_id" class="form-control" required onchange="warehouseChanged()">
+                        <option value="">— Select Warehouse —</option>
+                        <?php foreach ($warehouses as $w): ?>
+                            <option value="<?= $w['warehouse_id'] ?>" <?= (intval($_POST['warehouse_id'] ?? 0) === $w['warehouse_id']) ? 'selected' : '' ?>>
+                                <?= e($w['warehouse_name']) ?>
+                            </option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
             </div>
         </div>
 
@@ -339,6 +361,7 @@ include __DIR__ . '/../../includes/header.php';
 <script>
 const BASE = '<?= BASE_URL ?>';
 const allProducts = <?= json_encode($productJson) ?>;
+const stockData = <?= $stockDataJson ?>;
 let compIndex = 0;
 let woIndex = 0;
 
@@ -370,13 +393,14 @@ document.getElementById('product_id').addEventListener('change', async function(
 document.getElementById('bom_id').addEventListener('change', async function() {
     const bomId = this.value;
     const moQty = parseFloat(document.getElementById('mo_quantity').value) || 1;
+    const warehouseId = document.getElementById('warehouse_id').value;
     clearComponents();
     clearWorkOrders();
 
-    if (!bomId) return;
+    if (!bomId || !warehouseId) return;
 
     try {
-        const res = await fetch(`${BASE}/modules/manufacturing/ajax_bom_data.php?action=bom_components&bom_id=${bomId}&mo_qty=${moQty}`);
+        const res = await fetch(`${BASE}/modules/manufacturing/ajax_bom_data.php?action=bom_components&bom_id=${bomId}&mo_qty=${moQty}&warehouse_id=${warehouseId}`);
         const data = await res.json();
 
         data.components.forEach(comp => {
@@ -400,6 +424,13 @@ document.getElementById('mo_quantity').addEventListener('change', function() {
         document.getElementById('bom_id').dispatchEvent(new Event('change'));
     }
 });
+
+function warehouseChanged() {
+    const bomId = document.getElementById('bom_id').value;
+    if (bomId) {
+        document.getElementById('bom_id').dispatchEvent(new Event('change'));
+    }
+}
 
 // ─── Component helpers ─────────────────────────────────────────────────────
 function clearComponents() {
@@ -447,13 +478,18 @@ function addComponentRow(pid, code, name, uom, reqQty, freeQty, available, isMan
         tbody.appendChild(row);
         row.querySelector('.manual-comp-select').addEventListener('change', function() {
             const p = allProducts[this.value];
+            const warehouseId = document.getElementById('warehouse_id').value;
+            let freeQty = 0;
+            if (warehouseId && stockData[warehouseId] && stockData[warehouseId][this.value]) {
+                freeQty = stockData[warehouseId][this.value].free_to_use;
+            }
+
             const tr = this.closest('tr');
             tr.querySelector('.comp-uom').textContent = p ? p.uom : '—';
-            tr.querySelector('.comp-free').textContent = p ? p.free_qty.toFixed(3) : '—';
+            tr.querySelector('.comp-free').textContent = p ? freeQty.toFixed(3) : '—';
             const qtyInput = tr.querySelector('input[name="comp_qty[]"]');
             const reqQ = parseFloat(qtyInput.value) || 0;
-            const fq = p ? p.free_qty : 0;
-            const avail = fq >= reqQ;
+            const avail = freeQty >= reqQ;
             tr.querySelector('.comp-avail').innerHTML = avail
                 ? '<span class="badge badge-success"><i class="fa-solid fa-check" style="margin-right:4px;"></i>Available</span>'
                 : '<span class="badge badge-danger"><i class="fa-solid fa-xmark" style="margin-right:4px;"></i>Not Available</span>';

@@ -51,8 +51,9 @@ switch ($action) {
     case 'bom_components':
         $bomId = intval($_GET['bom_id'] ?? 0);
         $moQty = floatval($_GET['mo_qty'] ?? 1);
+        $warehouseId = intval($_GET['warehouse_id'] ?? 0);
 
-        if ($bomId <= 0) {
+        if ($bomId <= 0 || $warehouseId <= 0) {
             echo json_encode(['components' => [], 'bom_base_qty' => 1, 'standard_time' => 0]);
             exit;
         }
@@ -75,13 +76,15 @@ switch ($action) {
         // Get component lines with product stock info
         $stmt = $conn->prepare("
             SELECT bl.product_id, bl.quantity, bl.uom, bl.notes,
-                   p.product_code, p.product_name, p.on_hand_qty, p.reserved_qty, p.cost_price
+                   p.product_code, p.product_name, p.cost_price,
+                   COALESCE(ws.on_hand_qty, 0) as on_hand_qty, COALESCE(ws.reserved_qty, 0) as reserved_qty
             FROM tbl_bom_lines bl
             LEFT JOIN tbl_products p ON bl.product_id = p.product_id
+            LEFT JOIN tbl_product_warehouse_stock ws ON ws.product_id = p.product_id AND ws.warehouse_id = ?
             WHERE bl.bom_id = ?
             ORDER BY bl.sort_order ASC, bl.bom_line_id ASC
         ");
-        $stmt->bind_param("i", $bomId);
+        $stmt->bind_param("ii", $warehouseId, $bomId);
         $stmt->execute();
         $lines = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
         $stmt->close();

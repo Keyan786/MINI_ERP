@@ -23,6 +23,7 @@ $errors = [];
 function fetchMO(mysqli $conn, int $moId): ?array {
     $stmt = $conn->prepare("
         SELECT mo.*,
+               w.warehouse_name,
                p.product_name, p.product_code, p.uom as product_uom,
                b.bom_code, b.bom_name,
                au.full_name as assignee_name,
@@ -30,6 +31,7 @@ function fetchMO(mysqli $conn, int $moId): ?array {
                cfm.full_name as confirmer_name,
                cnl.full_name as canceller_name
         FROM tbl_manufacturing_orders mo
+        LEFT JOIN tbl_warehouses w ON mo.warehouse_id = w.warehouse_id
         LEFT JOIN tbl_products p ON mo.product_id = p.product_id
         LEFT JOIN tbl_bom b ON mo.bom_id = b.bom_id
         LEFT JOIN tbl_users au ON mo.assigned_user_id = au.user_id
@@ -45,15 +47,15 @@ function fetchMO(mysqli $conn, int $moId): ?array {
     return $mo;
 }
 
-function fetchComponents(mysqli $conn, int $moId): array {
+function fetchComponents(mysqli $conn, int $moId, int $warehouseId): array {
     $stmt = $conn->prepare("
-        SELECT mc.*, p.on_hand_qty, p.reserved_qty
+        SELECT mc.*, COALESCE(ws.on_hand_qty, 0) as on_hand_qty, COALESCE(ws.reserved_qty, 0) as reserved_qty
         FROM tbl_mo_components mc
-        LEFT JOIN tbl_products p ON mc.product_id = p.product_id
+        LEFT JOIN tbl_product_warehouse_stock ws ON mc.product_id = ws.product_id AND ws.warehouse_id = ?
         WHERE mc.mo_id = ?
         ORDER BY mc.mo_component_id ASC
     ");
-    $stmt->bind_param("i", $moId);
+    $stmt->bind_param("ii", $warehouseId, $moId);
     $stmt->execute();
     $comps = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
     $stmt->close();
@@ -81,7 +83,7 @@ if (!$mo) {
     redirect('/modules/manufacturing/index.php');
 }
 
-$components = fetchComponents($conn, $moId);
+$components = fetchComponents($conn, $moId, (int)$mo['warehouse_id']);
 $workOrders = fetchWorkOrders($conn, $moId);
 
 $status = $mo['status'];
@@ -124,11 +126,8 @@ if (is_post()) {
                         $stmtU->execute();
                         $stmtU->close();
 
-                        // Reserve stock: increase reserved_qty
-                        $stmtR = $conn->prepare("UPDATE tbl_products SET reserved_qty = reserved_qty + ? WHERE product_id = ?");
-                        $stmtR->bind_param("di", $comp['required_qty'], $comp['product_id']);
-                        $stmtR->execute();
-                        $stmtR->close();
+                        // Reserve stock via helper
+                        reserve_stock($conn, $comp['product_id'], (int)$mo['warehouse_id'], $comp['required_qty']);
                     }
 
                     // Update MO status (actual_start NOT set here — Option B)
@@ -185,6 +184,7 @@ if (is_post()) {
                     update_stock(
                         $conn,
                         $comp['product_id'],
+                        (int)$mo['warehouse_id'],
                         -$consumeQty,
                         'manufacturing_consume',
                         'Manufacturing Order',
@@ -194,11 +194,8 @@ if (is_post()) {
                         (float)$comp['unit_cost']
                     );
 
-                    // Decrease reserved_qty
-                    $stmtR = $conn->prepare("UPDATE tbl_products SET reserved_qty = GREATEST(0, reserved_qty - ?) WHERE product_id = ?");
-                    $stmtR->bind_param("di", $consumeQty, $comp['product_id']);
-                    $stmtR->execute();
-                    $stmtR->close();
+                    // Decrease reserved_qty via helper
+                    release_stock($conn, $comp['product_id'], (int)$mo['warehouse_id'], $consumeQty);
 
                     $consumeLog[$comp['product_code']] = ['consumed' => $consumeQty, 'new_total' => $newConsumed];
                     $anyConsumed = true;
@@ -233,7 +230,7 @@ if (is_post()) {
             $conn->begin_transaction();
             try {
                 // Auto-consume all remaining component quantities
-                $components = fetchComponents($conn, $moId);
+                $components = fetchComponents($conn, $moId, (int)$mo['warehouse_id']);
                 foreach ($components as $comp) {
                     $remaining = (float)$comp['required_qty'] - (float)$comp['consumed_qty'];
                     if ($remaining > 0.001) {
@@ -247,6 +244,7 @@ if (is_post()) {
                         update_stock(
                             $conn,
                             $comp['product_id'],
+                            (int)$mo['warehouse_id'],
                             -$remaining,
                             'manufacturing_consume',
                             'Manufacturing Order',
@@ -256,11 +254,8 @@ if (is_post()) {
                             (float)$comp['unit_cost']
                         );
 
-                        // Release reserved qty
-                        $stmtR = $conn->prepare("UPDATE tbl_products SET reserved_qty = GREATEST(0, reserved_qty - ?) WHERE product_id = ?");
-                        $stmtR->bind_param("di", $remaining, $comp['product_id']);
-                        $stmtR->execute();
-                        $stmtR->close();
+                        // Release reserved qty via helper
+                        release_stock($conn, $comp['product_id'], (int)$mo['warehouse_id'], $remaining);
                     }
                 }
 
@@ -269,6 +264,7 @@ if (is_post()) {
                 update_stock(
                     $conn,
                     $mo['product_id'],
+                    (int)$mo['warehouse_id'],
                     $moQty,
                     'manufacturing_in',
                     'Manufacturing Order',
@@ -315,14 +311,11 @@ if (is_post()) {
             try {
                 // If confirmed, release reserved quantities
                 if ($isConfirmed) {
-                    $components = fetchComponents($conn, $moId);
+                    $components = fetchComponents($conn, $moId, (int)$mo['warehouse_id']);
                     foreach ($components as $comp) {
                         $unreserve = (float)$comp['required_qty'] - (float)$comp['consumed_qty'];
                         if ($unreserve > 0.001) {
-                            $stmtR = $conn->prepare("UPDATE tbl_products SET reserved_qty = GREATEST(0, reserved_qty - ?) WHERE product_id = ?");
-                            $stmtR->bind_param("di", $unreserve, $comp['product_id']);
-                            $stmtR->execute();
-                            $stmtR->close();
+                            release_stock($conn, $comp['product_id'], (int)$mo['warehouse_id'], $unreserve);
                         }
                     }
                 }
@@ -410,7 +403,7 @@ if (is_post()) {
 
     // Re-fetch after action
     $mo = fetchMO($conn, $moId);
-    $components = fetchComponents($conn, $moId);
+    $components = fetchComponents($conn, $moId, (int)$mo['warehouse_id']);
     $workOrders = fetchWorkOrders($conn, $moId);
     $status = $mo['status'];
     $isDraft = ($status === 'draft');
@@ -548,6 +541,10 @@ include __DIR__ . '/../../includes/header.php';
                 <div style="display:flex; justify-content:space-between; padding:8px 0; border-bottom:1px solid var(--border-color);">
                     <span style="font-size:0.8125rem; color:var(--text-muted);">MO Number</span>
                     <span style="font-size:0.8125rem; font-weight:600; color:var(--accent-primary); font-family:'Fira Code',monospace;"><?= e($mo['mo_number']) ?></span>
+                </div>
+                <div style="display:flex; justify-content:space-between; padding:8px 0; border-bottom:1px solid var(--border-color);">
+                    <span style="font-size:0.8125rem; color:var(--text-muted);">Production Warehouse</span>
+                    <span style="font-size:0.8125rem; font-weight:600; color:var(--text-primary);"><?= e($mo['warehouse_name'] ?? '—') ?></span>
                 </div>
                 <div style="display:flex; justify-content:space-between; padding:8px 0; border-bottom:1px solid var(--border-color);">
                     <span style="font-size:0.8125rem; color:var(--text-muted);">Created</span>

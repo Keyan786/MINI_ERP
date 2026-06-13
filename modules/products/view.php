@@ -40,6 +40,20 @@ if (!$product) {
 $freeQty = get_free_qty($product['on_hand_qty'], $product['reserved_qty']);
 $stockStatus = get_stock_status($freeQty, $product['min_stock_level']);
 
+// Fetch warehouse stock levels
+$warehouseStock = [];
+$stmt = $conn->prepare("
+    SELECT ws.warehouse_id, w.warehouse_name, ws.on_hand_qty, ws.reserved_qty 
+    FROM tbl_product_warehouse_stock ws
+    JOIN tbl_warehouses w ON ws.warehouse_id = w.warehouse_id
+    WHERE ws.product_id = ? AND w.is_active = 1
+    ORDER BY w.warehouse_name
+");
+$stmt->bind_param("i", $productId);
+$stmt->execute();
+$warehouseStock = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+$stmt->close();
+
 // Fetch recent stock movements
 $movePage = max(1, intval($_GET['mpage'] ?? 1));
 $movePerPage = 15;
@@ -53,9 +67,10 @@ $stmt->close();
 $totalMovePages = max(1, ceil($totalMoves / $movePerPage));
 
 $stmt = $conn->prepare("
-    SELECT sm.*, u.full_name as user_name 
+    SELECT sm.*, u.full_name as user_name, w.warehouse_name
     FROM tbl_stock_movements sm 
     LEFT JOIN tbl_users u ON sm.created_by = u.user_id 
+    LEFT JOIN tbl_warehouses w ON sm.warehouse_id = w.warehouse_id
     WHERE sm.product_id = ? 
     ORDER BY sm.created_at DESC 
     LIMIT ? OFFSET ?
@@ -125,6 +140,39 @@ include __DIR__ . '/../../includes/header.php';
     </div>
 </div>
 
+<!-- Warehouse Stock Levels -->
+<?php if (!empty($warehouseStock)): ?>
+<div class="card animate-in" style="margin-top:20px;">
+    <div class="card-header">
+        <h3><i class="fa-solid fa-warehouse" style="color:var(--color-info); margin-right:8px;"></i>Warehouse Stock</h3>
+    </div>
+    <div class="table-wrapper">
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>Warehouse</th>
+                    <th style="text-align:right;">On-Hand</th>
+                    <th style="text-align:right;">Reserved</th>
+                    <th style="text-align:right;">Free-to-Use</th>
+                </tr>
+            </thead>
+            <tbody>
+                <?php foreach ($warehouseStock as $ws): 
+                    $wFree = get_free_qty((float)$ws['on_hand_qty'], (float)$ws['reserved_qty']);
+                ?>
+                <tr>
+                    <td style="font-weight:500; font-size:0.8125rem; color:var(--text-primary);"><?= e($ws['warehouse_name']) ?></td>
+                    <td style="text-align:right; font-size:0.8125rem;"><?= fmt_qty($ws['on_hand_qty']) ?></td>
+                    <td style="text-align:right; font-size:0.8125rem; color:var(--color-warning);"><?= fmt_qty($ws['reserved_qty']) ?></td>
+                    <td style="text-align:right; font-weight:500; font-size:0.8125rem; color:var(--color-success);"><?= fmt_qty($wFree) ?></td>
+                </tr>
+                <?php endforeach; ?>
+            </tbody>
+        </table>
+    </div>
+</div>
+<?php endif; ?>
+
 <!-- Product Details -->
 <div style="display:grid; grid-template-columns:1fr 1fr; gap:20px;" class="animate-in">
     <div class="card">
@@ -186,6 +234,7 @@ include __DIR__ . '/../../includes/header.php';
             <thead>
                 <tr>
                     <th>Date</th>
+                    <th>Warehouse</th>
                     <th>Type</th>
                     <th>Direction</th>
                     <th style="text-align:right;">Quantity</th>
@@ -200,11 +249,12 @@ include __DIR__ . '/../../includes/header.php';
             </thead>
             <tbody>
                 <?php if (empty($movements)): ?>
-                    <tr><td colspan="11"><div class="empty-state" style="padding:30px;"><p style="color:var(--text-muted);">No stock movements recorded yet.</p></div></td></tr>
+                    <tr><td colspan="12"><div class="empty-state" style="padding:30px;"><p style="color:var(--text-muted);">No stock movements recorded yet.</p></div></td></tr>
                 <?php else: ?>
                     <?php foreach ($movements as $mv): ?>
                         <tr>
                             <td style="font-size:0.8125rem; white-space:nowrap;"><?= format_datetime($mv['created_at']) ?></td>
+                            <td style="font-size:0.8125rem; color:var(--text-primary);"><?= e($mv['warehouse_name'] ?? '—') ?></td>
                             <td><span class="badge badge-primary"><?= e(str_replace('_', ' ', ucfirst($mv['movement_type']))) ?></span></td>
                             <td>
                                 <?php if ($mv['quantity'] > 0): ?>

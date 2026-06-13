@@ -39,16 +39,16 @@ if (!empty($search)) {
 }
 
 if ($stockFilter === 'in_stock') {
-    $where[] = "(p.on_hand_qty - p.reserved_qty) > p.min_stock_level";
+    $where[] = "(pws.on_hand_qty - pws.reserved_qty) > p.min_stock_level";
 } elseif ($stockFilter === 'low_stock') {
-    $where[] = "(p.on_hand_qty - p.reserved_qty) > 0 AND (p.on_hand_qty - p.reserved_qty) <= p.min_stock_level";
+    $where[] = "(pws.on_hand_qty - pws.reserved_qty) > 0 AND (pws.on_hand_qty - pws.reserved_qty) <= p.min_stock_level";
 } elseif ($stockFilter === 'out_of_stock') {
-    $where[] = "(p.on_hand_qty - p.reserved_qty) <= 0";
+    $where[] = "(pws.on_hand_qty - pws.reserved_qty) <= 0";
 }
 
 $whereClause = implode(" AND ", $where);
 
-$stmt = $conn->prepare("SELECT COUNT(*) as cnt FROM tbl_products p WHERE $whereClause");
+$stmt = $conn->prepare("SELECT COUNT(*) as cnt FROM tbl_product_warehouse_stock pws JOIN tbl_products p ON pws.product_id = p.product_id WHERE $whereClause");
 if (!empty($params)) $stmt->bind_param($types, ...$params);
 $stmt->execute();
 $totalItems = $stmt->get_result()->fetch_assoc()['cnt'];
@@ -59,11 +59,13 @@ $params[] = $perPage; $params[] = $offset;
 $types .= "ii";
 
 $stmt = $conn->prepare("
-    SELECT p.*, c.category_name 
-    FROM tbl_products p 
+    SELECT pws.*, p.product_name, p.product_code, p.uom, p.min_stock_level, c.category_name, w.warehouse_name 
+    FROM tbl_product_warehouse_stock pws
+    JOIN tbl_products p ON pws.product_id = p.product_id
+    JOIN tbl_warehouses w ON pws.warehouse_id = w.warehouse_id
     LEFT JOIN tbl_product_categories c ON p.category_id = c.category_id 
     WHERE $whereClause 
-    ORDER BY (p.on_hand_qty - p.reserved_qty) ASC, p.product_name ASC 
+    ORDER BY (pws.on_hand_qty - pws.reserved_qty) ASC, p.product_name ASC, w.warehouse_name ASC 
     LIMIT ? OFFSET ?
 ");
 $stmt->bind_param($types, ...$params);
@@ -80,6 +82,12 @@ include __DIR__ . '/../../includes/header.php';
         <p class="page-header-desc">Monitor stock levels and inventory health</p>
     </div>
     <div class="btn-group">
+        <a href="<?= BASE_URL ?>/modules/inventory/warehouses.php" class="btn btn-secondary">
+            <i class="fa-solid fa-warehouse"></i> Warehouses
+        </a>
+        <a href="<?= BASE_URL ?>/modules/inventory/transfers.php" class="btn btn-secondary">
+            <i class="fa-solid fa-truck-moving"></i> Transfers
+        </a>
         <a href="<?= BASE_URL ?>/modules/inventory/adjust.php" class="btn btn-primary">
             <i class="fa-solid fa-sliders"></i> Adjust Stock
         </a>
@@ -137,6 +145,7 @@ include __DIR__ . '/../../includes/header.php';
             <thead>
                 <tr>
                     <th>Product</th>
+                    <th>Warehouse</th>
                     <th>Category</th>
                     <th style="text-align:right;">On-Hand</th>
                     <th style="text-align:right;">Reserved</th>
@@ -158,6 +167,7 @@ include __DIR__ . '/../../includes/header.php';
                                 </a>
                                 <div style="font-size:0.75rem; font-family:'Fira Code',monospace; color:var(--accent-primary);"><?= e($p['product_code']) ?></div>
                             </td>
+                            <td style="font-size:0.85rem; font-weight:500;"><span class="badge badge-secondary"><?= e($p['warehouse_name']) ?></span></td>
                             <td style="font-size:0.8125rem; color:var(--text-muted);"><?= $p['category_name'] ? e($p['category_name']) : '—' ?></td>
                             <td style="text-align:right; font-weight:500;"><?= fmt_qty($p['on_hand_qty']) ?> <span style="font-size:0.75rem;color:var(--text-muted);"><?= e($p['uom']) ?></span></td>
                             <td style="text-align:right; color:var(--color-warning); font-weight:500;"><?= fmt_qty($p['reserved_qty']) ?></td>

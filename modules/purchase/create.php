@@ -15,6 +15,7 @@ $errors = [];
 // Fetch vendors, users, products for dropdowns
 $vendors = $conn->query("SELECT vendor_id, vendor_name, contact_person, email, phone, address, city, state, country FROM tbl_vendors WHERE is_active = 1 ORDER BY vendor_name")->fetch_all(MYSQLI_ASSOC);
 $users = $conn->query("SELECT user_id, full_name FROM tbl_users WHERE status = 'active' ORDER BY full_name")->fetch_all(MYSQLI_ASSOC);
+$warehouses = $conn->query("SELECT warehouse_id, warehouse_name FROM tbl_warehouses WHERE is_active = 1 ORDER BY warehouse_name")->fetch_all(MYSQLI_ASSOC);
 $products = $conn->query("SELECT product_id, product_code, product_name, uom, cost_price FROM tbl_products WHERE is_active = 1 ORDER BY product_name")->fetch_all(MYSQLI_ASSOC);
 
 // Build JSON for client-side auto-fill
@@ -66,6 +67,7 @@ if (is_post()) {
         $errors[] = 'Invalid security token.';
     } else {
         $vendorId = intval($_POST['vendor_id'] ?? 0);
+        $destinationWarehouseId = intval($_POST['destination_warehouse_id'] ?? 0);
         $responsibleUserId = intval($_POST['responsible_user_id'] ?? 0);
         $notes = trim($_POST['notes'] ?? '');
 
@@ -76,6 +78,7 @@ if (is_post()) {
 
         // Validate
         if ($vendorId <= 0) $errors[] = 'Please select a vendor.';
+        if ($destinationWarehouseId <= 0) $errors[] = 'Please select a destination warehouse.';
         if (empty($lineProductIds) || count($lineProductIds) === 0) {
             $errors[] = 'Add at least one product line.';
         }
@@ -124,9 +127,9 @@ if (is_post()) {
                 $userId = $_SESSION['user_id'];
                 $respId = $responsibleUserId > 0 ? $responsibleUserId : null;
 
-                $stmt = $conn->prepare("INSERT INTO tbl_purchase_orders (po_number, vendor_id, vendor_name, vendor_contact_person, vendor_email, vendor_phone, vendor_address, responsible_user_id, notes, ordered_total, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
-                $stmt->bind_param("sisssssisdi",
-                    $poNumber, $vendorId, $vendor['vendor_name'], $vendor['contact_person'],
+                $stmt = $conn->prepare("INSERT INTO tbl_purchase_orders (po_number, vendor_id, destination_warehouse_id, vendor_name, vendor_contact_person, vendor_email, vendor_phone, vendor_address, responsible_user_id, notes, ordered_total, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+                $stmt->bind_param("siisssssisdi",
+                    $poNumber, $vendorId, $destinationWarehouseId, $vendor['vendor_name'], $vendor['contact_person'],
                     $vendor['email'], $vendor['phone'], $vendorAddr,
                     $respId, $notes, $orderedTotal, $userId
                 );
@@ -238,6 +241,18 @@ include __DIR__ . '/../../includes/header.php';
                         <?php foreach ($users as $u): ?>
                             <option value="<?= $u['user_id'] ?>" <?= intval($_POST['responsible_user_id'] ?? 0) == $u['user_id'] ? 'selected' : '' ?>>
                                 <?= e($u['full_name']) ?>
+                            </option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
+                
+                <div class="form-group">
+                    <label class="form-label" for="destination_warehouse_id">Destination Warehouse <span class="text-danger">*</span></label>
+                    <select name="destination_warehouse_id" id="destination_warehouse_id" class="form-control form-select" required>
+                        <option value="">— Select Warehouse —</option>
+                        <?php foreach ($warehouses as $w): ?>
+                            <option value="<?= $w['warehouse_id'] ?>" <?= intval($_POST['destination_warehouse_id'] ?? 0) == $w['warehouse_id'] ? 'selected' : '' ?>>
+                                <?= e($w['warehouse_name']) ?>
                             </option>
                         <?php endforeach; ?>
                     </select>

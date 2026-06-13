@@ -128,13 +128,10 @@ if (is_post() && csrf_validate()) {
                 // Change status
                 $conn->query("UPDATE tbl_sales_orders SET status = 'confirmed' WHERE so_id = $soId");
                 
-                // Reserve stock
-                $stmt = $conn->prepare("UPDATE tbl_products SET reserved_qty = reserved_qty + ? WHERE product_id = ?");
+                // Reserve stock in the assigned warehouse
                 foreach ($lines as $l) {
-                    $stmt->bind_param("di", $l['ordered_qty'], $l['product_id']);
-                    $stmt->execute();
+                    reserve_stock($conn, $l['product_id'], $so['warehouse_id'], $l['ordered_qty']);
                 }
-                $stmt->close();
                 
                 log_action($conn, 'Sales', ACTION_SO_CONFIRM, 'SalesOrder', $soId);
                 $conn->commit();
@@ -156,8 +153,6 @@ if (is_post() && csrf_validate()) {
             $totalDeliveredNow = 0;
             
             $stmtUpdateLine = $conn->prepare("UPDATE tbl_so_lines SET delivered_qty = delivered_qty + ? WHERE line_id = ?");
-            $stmtUpdateProduct = $conn->prepare("UPDATE tbl_products SET on_hand_qty = on_hand_qty - ?, reserved_qty = reserved_qty - ? WHERE product_id = ?");
-            $stmtInsertMove = $conn->prepare("INSERT INTO tbl_stock_movements (product_id, movement_type, reference_type, reference_id, quantity, qty_before, qty_after, created_by) VALUES (?, 'sales_out', 'sales_order', ?, ?, ?, ?, ?)");
             
             foreach ($lines as $l) {
                 $lid = $l['line_id'];
@@ -173,19 +168,11 @@ if (is_post() && csrf_validate()) {
                     $stmtUpdateLine->bind_param("di", $newDeliverQty, $lid);
                     $stmtUpdateLine->execute();
                     
-                    // Update Product Inventory (deduct on_hand and reserved)
-                    $stmtUpdateProduct->bind_param("ddi", $newDeliverQty, $newDeliverQty, $l['product_id']);
-                    $stmtUpdateProduct->execute();
-                    
-                    // Fetch fresh on_hand for stock movement record
-                    $pRes = $conn->query("SELECT on_hand_qty FROM tbl_products WHERE product_id = " . $l['product_id'])->fetch_assoc();
-                    $qtyAfter = $pRes['on_hand_qty'];
-                    $qtyBefore = $qtyAfter + $newDeliverQty;
-                    
-                    // Stock Movement
-                    $negQty = -$newDeliverQty;
-                    $stmtInsertMove->bind_param("iidddi", $l['product_id'], $soId, $negQty, $qtyBefore, $qtyAfter, $_SESSION['user_id']);
-                    $stmtInsertMove->execute();
+                    // Decrease Reserved Qty in Warehouse
+                    reserve_stock($conn, $l['product_id'], $so['warehouse_id'], -$newDeliverQty);
+
+                    // Decrease On-Hand Qty and Record Stock Movement
+                    update_stock($conn, $l['product_id'], $so['warehouse_id'], -$newDeliverQty, 'sales_out', 'sales_order', $soId, null, $_SESSION['user_id']);
                     
                     $totalDeliveredNow += $newDeliverQty;
                     $remainingQty -= $newDeliverQty;
@@ -219,15 +206,12 @@ if (is_post() && csrf_validate()) {
         try {
             // Release undelivered reserved stock
             if (in_array($so['status'], ['confirmed', 'partially_delivered'])) {
-                $stmt = $conn->prepare("UPDATE tbl_products SET reserved_qty = reserved_qty - ? WHERE product_id = ?");
                 foreach ($lines as $l) {
                     $undelivered = $l['ordered_qty'] - $l['delivered_qty'];
                     if ($undelivered > 0) {
-                        $stmt->bind_param("di", $undelivered, $l['product_id']);
-                        $stmt->execute();
+                        reserve_stock($conn, $l['product_id'], $so['warehouse_id'], -$undelivered);
                     }
                 }
-                $stmt->close();
             }
             
             // Change status

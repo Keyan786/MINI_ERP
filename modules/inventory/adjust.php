@@ -14,20 +14,26 @@ $errors = [];
 $old = $_POST;
 
 // Fetch products for selector
-$products = $conn->query("SELECT product_id, product_code, product_name, uom, on_hand_qty, reserved_qty FROM tbl_products WHERE is_active = 1 ORDER BY product_name")->fetch_all(MYSQLI_ASSOC);
+$products = $conn->query("SELECT product_id, product_code, product_name, uom FROM tbl_products WHERE is_active = 1 ORDER BY product_name")->fetch_all(MYSQLI_ASSOC);
 
-// Build JSON data for client-side display
-$productData = [];
-foreach ($products as $p) {
-    $free = get_free_qty($p['on_hand_qty'], $p['reserved_qty']);
-    $productData[$p['product_id']] = [
-        'name' => $p['product_name'],
-        'code' => $p['product_code'],
-        'uom' => $p['uom'],
-        'on_hand' => (float)$p['on_hand_qty'],
-        'reserved' => (float)$p['reserved_qty'],
+// Fetch warehouses
+$warehouses = $conn->query("SELECT warehouse_id, warehouse_name FROM tbl_warehouses WHERE is_active = 1 ORDER BY warehouse_name")->fetch_all(MYSQLI_ASSOC);
+
+// Build JSON data for client-side display per warehouse
+$stockData = [];
+$res = $conn->query("SELECT product_id, warehouse_id, on_hand_qty, reserved_qty FROM tbl_product_warehouse_stock");
+while ($r = $res->fetch_assoc()) {
+    $free = get_free_qty((float)$r['on_hand_qty'], (float)$r['reserved_qty']);
+    $stockData[$r['warehouse_id']][$r['product_id']] = [
+        'on_hand' => (float)$r['on_hand_qty'],
+        'reserved' => (float)$r['reserved_qty'],
         'free_to_use' => $free,
     ];
+}
+
+$productUomMap = [];
+foreach ($products as $p) {
+    $productUomMap[$p['product_id']] = $p['uom'];
 }
 
 // ─── Handle POST ────────────────────────────────────────────────────────────
@@ -36,12 +42,14 @@ if (is_post()) {
         $errors[] = 'Invalid security token.';
     } else {
         $productId = intval($_POST['product_id'] ?? 0);
+        $warehouseId = intval($_POST['warehouse_id'] ?? 0);
         $adjustType = $_POST['adjust_type'] ?? ''; // add or remove
         $quantity = floatval($_POST['quantity'] ?? 0);
         $notes = trim($_POST['notes'] ?? '');
 
         // Validation
         if ($productId <= 0) $errors[] = 'Please select a product.';
+        if ($warehouseId <= 0) $errors[] = 'Please select a warehouse.';
         if (!in_array($adjustType, ['add', 'remove'])) $errors[] = 'Invalid adjustment type.';
         if ($quantity <= 0) $errors[] = 'Quantity must be greater than zero.';
         if (empty($notes)) $errors[] = 'Reason/notes is required for stock adjustments.';
@@ -57,13 +65,23 @@ if (is_post()) {
             if (!$product) {
                 $errors[] = 'Product not found or inactive.';
             } else {
+                // Fetch warehouse stock
+                $stmt = $conn->prepare("SELECT on_hand_qty, reserved_qty FROM tbl_product_warehouse_stock WHERE product_id = ? AND warehouse_id = ?");
+                $stmt->bind_param("ii", $productId, $warehouseId);
+                $stmt->execute();
+                $ws = $stmt->get_result()->fetch_assoc();
+                $stmt->close();
+                
+                $wsOnHand = $ws ? (float)$ws['on_hand_qty'] : 0.000;
+                $wsReserved = $ws ? (float)$ws['reserved_qty'] : 0.000;
+
                 // ─── Negative Stock Prevention ──────────────────────────────
                 if ($adjustType === 'remove') {
-                    $freeToUse = get_free_qty($product['on_hand_qty'], $product['reserved_qty']);
+                    $freeToUse = get_free_qty($wsOnHand, $wsReserved);
                     if ($quantity > $freeToUse) {
                         $errors[] = 'Cannot remove ' . fmt_qty($quantity) . ' units. Only ' 
-                                  . fmt_qty($freeToUse) . ' units are available (Free-to-Use). '
-                                  . fmt_qty($product['reserved_qty']) . ' units are reserved by active orders.';
+                                  . fmt_qty($freeToUse) . ' units are available (Free-to-Use) in this warehouse. '
+                                  . fmt_qty($wsReserved) . ' units are reserved by active orders.';
                     }
                 }
                 // ─── End Negative Stock Prevention ──────────────────────────
@@ -74,15 +92,16 @@ if (is_post()) {
 
                     $conn->begin_transaction();
                     try {
-                        update_stock($conn, $productId, $actualQty, 'adjustment', 'Manual', null, $notes, $userId);
+                        update_stock($conn, $productId, $warehouseId, $actualQty, 'adjustment', 'Manual', null, $notes, $userId);
 
                         // Audit log
                         log_action($conn, 'Inventory', ACTION_STOCK_ADJUST, 'Product', $productId, 
-                            ['on_hand_qty' => $product['on_hand_qty']],
+                            ['on_hand_qty' => $wsOnHand],
                             [
+                                'warehouse_id' => $warehouseId,
                                 'adjustment_type' => $adjustType,
                                 'quantity' => $quantity,
-                                'on_hand_qty' => $product['on_hand_qty'] + $actualQty,
+                                'on_hand_qty' => $wsOnHand + $actualQty,
                                 'reason' => $notes,
                             ]
                         );
@@ -131,10 +150,23 @@ include __DIR__ . '/../../includes/header.php';
                 <h3><i class="fa-solid fa-sliders" style="color:var(--accent-primary); margin-right:8px;"></i>Adjustment Details</h3>
             </div>
             <div class="card-body">
+                <!-- Warehouse Selector -->
+                <div class="form-group">
+                    <label class="form-label" for="warehouse_id">Target Warehouse <span class="text-danger">*</span></label>
+                    <select name="warehouse_id" id="warehouse_id" class="form-control form-select" required onchange="updateProductInfo()">
+                        <option value="">— Select Warehouse —</option>
+                        <?php foreach ($warehouses as $w): ?>
+                            <option value="<?= $w['warehouse_id'] ?>" <?= intval($old['warehouse_id'] ?? 0) == $w['warehouse_id'] ? 'selected' : '' ?>>
+                                <?= e($w['warehouse_name']) ?>
+                            </option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
+
                 <!-- Product Selector -->
                 <div class="form-group">
                     <label class="form-label" for="product_id">Product <span class="text-danger">*</span></label>
-                    <select name="product_id" id="product_id" class="form-control form-select" required onchange="updateProductInfo(this.value)">
+                    <select name="product_id" id="product_id" class="form-control form-select" required onchange="updateProductInfo()">
                         <option value="">— Select Product —</option>
                         <?php foreach ($products as $p): ?>
                             <option value="<?= $p['product_id'] ?>" <?= intval($old['product_id'] ?? 0) == $p['product_id'] ? 'selected' : '' ?>>
@@ -211,39 +243,49 @@ include __DIR__ . '/../../includes/header.php';
 </div>
 
 <script>
-const productData = <?= json_encode($productData) ?>;
+const stockData = <?= json_encode($stockData) ?>;
+const productUomMap = <?= json_encode($productUomMap) ?>;
 
-function updateProductInfo(productId) {
+function updateProductInfo() {
+    const warehouseId = document.getElementById('warehouse_id').value;
+    const productId = document.getElementById('product_id').value;
     const info = document.getElementById('product-info');
-    if (!productId || !productData[productId]) {
+    
+    if (!warehouseId || !productId) {
         info.style.display = 'none';
+        updateValidation();
         return;
     }
-    const p = productData[productId];
+    
+    const pStock = (stockData[warehouseId] && stockData[warehouseId][productId]) || {on_hand: 0, reserved: 0, free_to_use: 0};
+    const uom = productUomMap[productId] || 'Unit';
+
     info.style.display = 'block';
-    document.getElementById('info-on-hand').textContent = p.on_hand.toFixed(3).replace(/\.?0+$/, '');
-    document.getElementById('info-reserved').textContent = p.reserved.toFixed(3).replace(/\.?0+$/, '');
-    document.getElementById('info-free').textContent = p.free_to_use.toFixed(3).replace(/\.?0+$/, '');
-    document.getElementById('info-uom').textContent = 'Unit: ' + p.uom;
+    document.getElementById('info-on-hand').textContent = pStock.on_hand.toFixed(3).replace(/\.?0+$/, '');
+    document.getElementById('info-reserved').textContent = pStock.reserved.toFixed(3).replace(/\.?0+$/, '');
+    document.getElementById('info-free').textContent = pStock.free_to_use.toFixed(3).replace(/\.?0+$/, '');
+    document.getElementById('info-uom').textContent = 'Unit: ' + uom;
     updateValidation();
 }
 
 function updateValidation() {
+    const warehouseId = document.getElementById('warehouse_id').value;
     const productId = document.getElementById('product_id').value;
     const adjustType = document.querySelector('input[name="adjust_type"]:checked')?.value;
     const quantity = parseFloat(document.getElementById('quantity').value) || 0;
     const warning = document.getElementById('qty-warning');
     const submitBtn = document.getElementById('submit-btn');
     
-    if (adjustType === 'remove' && productId && productData[productId]) {
-        const freeToUse = productData[productId].free_to_use;
-        const reserved = productData[productId].reserved;
+    if (adjustType === 'remove' && warehouseId && productId) {
+        const pStock = (stockData[warehouseId] && stockData[warehouseId][productId]) || {on_hand: 0, reserved: 0, free_to_use: 0};
+        const freeToUse = pStock.free_to_use;
+        const reserved = pStock.reserved;
         if (quantity > freeToUse) {
             warning.style.display = 'block';
             document.getElementById('qty-warning-text').textContent = 
                 'Cannot remove ' + quantity + ' units. Only ' + freeToUse.toFixed(3).replace(/\.?0+$/, '') + 
-                ' units are available (Free-to-Use). ' + reserved.toFixed(3).replace(/\.?0+$/, '') + 
-                ' units are reserved by active orders.';
+                ' units are available (Free-to-Use) in this warehouse. ' + reserved.toFixed(3).replace(/\.?0+$/, '') + 
+                ' units are reserved.';
             submitBtn.disabled = true;
             submitBtn.style.opacity = '0.5';
             return;

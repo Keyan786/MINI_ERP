@@ -25,19 +25,35 @@ $customers = $conn->query("SELECT * FROM tbl_customers WHERE is_active = 1 ORDER
 // Fetch Sales Persons (Users)
 $users = $conn->query("SELECT user_id, full_name FROM tbl_users WHERE status = 'active' ORDER BY full_name ASC")->fetch_all(MYSQLI_ASSOC);
 
+// Fetch Warehouses
+$warehouses = $conn->query("SELECT warehouse_id, warehouse_name FROM tbl_warehouses WHERE is_active = 1 ORDER BY warehouse_name")->fetch_all(MYSQLI_ASSOC);
+
 // Fetch Products
-$productsResult = $conn->query("SELECT product_id, product_code, product_name, sales_price, uom, on_hand_qty, reserved_qty FROM tbl_products WHERE is_active = 1 ORDER BY product_name ASC");
+$productsResult = $conn->query("SELECT product_id, product_code, product_name, sales_price, uom FROM tbl_products WHERE is_active = 1 ORDER BY product_name ASC");
 $products = [];
 while ($row = $productsResult->fetch_assoc()) {
-    $row['free_qty'] = max(0, $row['on_hand_qty'] - $row['reserved_qty']);
     $products[] = $row;
 }
 $productsJson = json_encode($products);
+
+// Fetch Warehouse Stock mapping
+$stockData = [];
+$res = $conn->query("SELECT product_id, warehouse_id, on_hand_qty, reserved_qty FROM tbl_product_warehouse_stock");
+while ($r = $res->fetch_assoc()) {
+    $free = get_free_qty((float)$r['on_hand_qty'], (float)$r['reserved_qty']);
+    $stockData[$r['warehouse_id']][$r['product_id']] = [
+        'on_hand' => (float)$r['on_hand_qty'],
+        'reserved' => (float)$r['reserved_qty'],
+        'free_to_use' => $free
+    ];
+}
+$stockDataJson = json_encode($stockData);
 
 // Handle POST
 if (is_post()) {
     if (csrf_validate()) {
         $customerId = intval($_POST['customer_id'] ?? 0);
+        $warehouseId = intval($_POST['warehouse_id'] ?? 0);
         $salesPersonId = intval($_POST['sales_person_id'] ?? 0);
         $customerAddress = trim($_POST['customer_address'] ?? '');
         $productIds = $_POST['product_id'] ?? [];
@@ -45,6 +61,8 @@ if (is_post()) {
         
         if ($customerId <= 0) {
             set_flash('error', 'Please select a customer.');
+        } elseif ($warehouseId <= 0) {
+            set_flash('error', 'Please select a warehouse.');
         } elseif (empty($productIds)) {
             set_flash('error', 'Please add at least one product line.');
         } else {
@@ -58,8 +76,8 @@ if (is_post()) {
             $conn->begin_transaction();
             try {
                 // Insert Header
-                $stmt = $conn->prepare("INSERT INTO tbl_sales_orders (so_number, customer_id, customer_name_snapshot, customer_address_snapshot, sales_person_id, created_by) VALUES (?, ?, ?, ?, ?, ?)");
-                $stmt->bind_param("sisssi", $soNumber, $customerId, $cName, $customerAddress, $salesPersonId, $_SESSION['user_id']);
+                $stmt = $conn->prepare("INSERT INTO tbl_sales_orders (so_number, customer_id, warehouse_id, customer_name_snapshot, customer_address_snapshot, sales_person_id, created_by) VALUES (?, ?, ?, ?, ?, ?, ?)");
+                $stmt->bind_param("siisssi", $soNumber, $customerId, $warehouseId, $cName, $customerAddress, $salesPersonId, $_SESSION['user_id']);
                 $stmt->execute();
                 $soId = $conn->insert_id;
                 $stmt->close();
@@ -147,6 +165,18 @@ include __DIR__ . '/../../includes/header.php';
                     </select>
                 </div>
                 <div class="form-group col-md-6">
+                    <label class="form-label">Warehouse <span class="text-danger">*</span></label>
+                    <select name="warehouse_id" id="warehouse_id" class="form-control" required onchange="updateAllLines()">
+                        <option value="">— Select Warehouse —</option>
+                        <?php foreach ($warehouses as $w): ?>
+                            <option value="<?= $w['warehouse_id'] ?>"><?= e($w['warehouse_name']) ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
+            </div>
+            
+            <div class="form-row">
+                <div class="form-group col-md-6">
                     <label class="form-label">Sales Person <span class="text-danger">*</span></label>
                     <select name="sales_person_id" class="form-control" required>
                         <option value="">— Select Sales Person —</option>
@@ -211,6 +241,7 @@ include __DIR__ . '/../../includes/header.php';
 
 <script>
 const products = <?= $productsJson ?>;
+const stockData = <?= $stockDataJson ?>;
 
 function populateAddress() {
     const sel = document.getElementById('customer_id');
@@ -283,9 +314,15 @@ function updateLine(selectElem) {
     
     const p = products.find(x => x.product_id == pid);
     if (p) {
+        const warehouseId = document.getElementById('warehouse_id').value;
+        let freeQty = 0;
+        if (warehouseId && stockData[warehouseId] && stockData[warehouseId][pid]) {
+            freeQty = stockData[warehouseId][pid].free_to_use;
+        }
+
         // Availability formatting
-        let availColor = p.free_qty > 0 ? 'var(--color-success)' : 'var(--color-danger)';
-        availDisplay.innerHTML = `<span style="color:${availColor}; font-weight:500;">${parseFloat(p.free_qty).toFixed(2)}</span> ${p.uom} free`;
+        let availColor = freeQty > 0 ? 'var(--color-success)' : 'var(--color-danger)';
+        availDisplay.innerHTML = `<span style="color:${availColor}; font-weight:500;">${parseFloat(freeQty).toFixed(2)}</span> ${p.uom} free`;
         
         // Price & UOM
         priceDisplay.innerText = '$' + parseFloat(p.sales_price).toFixed(2);
@@ -296,6 +333,12 @@ function updateLine(selectElem) {
     }
     
     calculateTotals();
+}
+
+function updateAllLines() {
+    document.querySelectorAll('.product-select').forEach(sel => {
+        updateLine(sel);
+    });
 }
 
 function calculateTotals() {

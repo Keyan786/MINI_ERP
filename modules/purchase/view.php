@@ -21,12 +21,14 @@ $errors = [];
 // ─── Fetch PO ───────────────────────────────────────────────────────────────
 $stmt = $conn->prepare("
     SELECT po.*, 
+           w.warehouse_name as destination_warehouse_name,
            resp.full_name as responsible_name,
            cr.full_name as creator_name,
            cfm.full_name as confirmer_name,
            rcv.full_name as receiver_name,
            cnl.full_name as canceller_name
     FROM tbl_purchase_orders po
+    LEFT JOIN tbl_warehouses w ON po.destination_warehouse_id = w.warehouse_id
     LEFT JOIN tbl_users resp ON po.responsible_user_id = resp.user_id
     LEFT JOIN tbl_users cr   ON po.created_by = cr.user_id
     LEFT JOIN tbl_users cfm  ON po.confirmed_by = cfm.user_id
@@ -124,6 +126,7 @@ if (is_post()) {
                     update_stock(
                         $conn,
                         $line['product_id'],
+                        $po['destination_warehouse_id'],
                         $receiveQty,
                         'purchase_in',
                         'Purchase Order',
@@ -202,7 +205,7 @@ if (is_post()) {
     }
 
     // Re-fetch data after action
-    $stmt = $conn->prepare("SELECT po.*, resp.full_name as responsible_name, cr.full_name as creator_name, cfm.full_name as confirmer_name, rcv.full_name as receiver_name, cnl.full_name as canceller_name FROM tbl_purchase_orders po LEFT JOIN tbl_users resp ON po.responsible_user_id = resp.user_id LEFT JOIN tbl_users cr ON po.created_by = cr.user_id LEFT JOIN tbl_users cfm ON po.confirmed_by = cfm.user_id LEFT JOIN tbl_users rcv ON po.received_by = rcv.user_id LEFT JOIN tbl_users cnl ON po.cancelled_by = cnl.user_id WHERE po.po_id = ?");
+    $stmt = $conn->prepare("SELECT po.*, w.warehouse_name as destination_warehouse_name, resp.full_name as responsible_name, cr.full_name as creator_name, cfm.full_name as confirmer_name, rcv.full_name as receiver_name, cnl.full_name as canceller_name FROM tbl_purchase_orders po LEFT JOIN tbl_warehouses w ON po.destination_warehouse_id = w.warehouse_id LEFT JOIN tbl_users resp ON po.responsible_user_id = resp.user_id LEFT JOIN tbl_users cr ON po.created_by = cr.user_id LEFT JOIN tbl_users cfm ON po.confirmed_by = cfm.user_id LEFT JOIN tbl_users rcv ON po.received_by = rcv.user_id LEFT JOIN tbl_users cnl ON po.cancelled_by = cnl.user_id WHERE po.po_id = ?");
     $stmt->bind_param("i", $poId);
     $stmt->execute();
     $po = $stmt->get_result()->fetch_assoc();
@@ -335,6 +338,10 @@ include __DIR__ . '/../../includes/header.php';
                 <div style="display:flex; justify-content:space-between; padding:8px 0; border-bottom:1px solid var(--border-color);">
                     <span style="font-size:0.8125rem; color:var(--text-muted);">Created</span>
                     <span style="font-size:0.8125rem; color:var(--text-primary);"><?= format_datetime($po['created_at']) ?> by <?= e($po['creator_name'] ?? 'System') ?></span>
+                </div>
+                <div style="display:flex; justify-content:space-between; padding:8px 0; border-bottom:1px solid var(--border-color);">
+                    <span style="font-size:0.8125rem; color:var(--text-muted);">Destination Warehouse</span>
+                    <span style="font-size:0.8125rem; font-weight:600; color:var(--text-primary);"><?= e($po['destination_warehouse_name'] ?? '—') ?></span>
                 </div>
                 <div style="display:flex; justify-content:space-between; padding:8px 0; border-bottom:1px solid var(--border-color);">
                     <span style="font-size:0.8125rem; color:var(--text-muted);">Responsible</span>
