@@ -7,6 +7,7 @@ $pageTitle = 'Create Sales Order';
 $currentModule = 'sales';
 
 require_once __DIR__ . '/../../includes/auth_check.php';
+require_once __DIR__ . '/../../includes/inventory_helpers.php';
 
 // Generate SO Number
 $year = date('Y');
@@ -220,7 +221,7 @@ include __DIR__ . '/../../includes/header.php';
                     <tfoot>
                         <tr>
                             <td colspan="4" style="text-align: right; font-weight: bold; padding-right: 15px;">Order Total:</td>
-                            <td style="font-weight: bold; font-size: 1.1rem; color: var(--primary-color);">$<span id="order-total">0.00</span></td>
+                            <td style="font-weight: bold; font-size: 1.1rem; color: var(--primary-color);">₹<span id="order-total">0.00</span></td>
                             <td></td>
                         </tr>
                     </tfoot>
@@ -276,7 +277,7 @@ function addLine() {
             <div class="availability-display" style="font-size:0.85rem; color:var(--text-muted); padding-top:8px;">-</div>
         </td>
         <td>
-            <div class="price-display" style="padding-top:8px;">$0.00</div>
+            <div class="price-display" style="padding-top:8px;">₹0.00</div>
         </td>
         <td>
             <div style="display:flex; align-items:center; gap:5px;">
@@ -285,7 +286,7 @@ function addLine() {
             </div>
         </td>
         <td>
-            <div class="total-display" style="font-weight:600; padding-top:8px;">$0.00</div>
+            <div class="total-display" style="font-weight:600; padding-top:8px;">₹0.00</div>
         </td>
         <td>
             <button type="button" class="btn btn-sm btn-outline text-danger" onclick="this.closest('tr').remove(); calculateTotals();" style="border:none; padding:8px;">
@@ -306,7 +307,7 @@ function updateLine(selectElem) {
     
     if (!pid) {
         availDisplay.innerHTML = '-';
-        priceDisplay.innerText = '$0.00';
+        priceDisplay.innerText = '₹0.00';
         uomDisplay.innerText = '';
         calculateTotals();
         return;
@@ -325,7 +326,7 @@ function updateLine(selectElem) {
         availDisplay.innerHTML = `<span style="color:${availColor}; font-weight:500;">${parseFloat(freeQty).toFixed(2)}</span> ${p.uom} free`;
         
         // Price & UOM
-        priceDisplay.innerText = '$' + parseFloat(p.sales_price).toFixed(2);
+        priceDisplay.innerText = '₹' + parseFloat(p.sales_price).toFixed(2);
         uomDisplay.innerText = p.uom;
         
         // Save price in a data attribute on the row for easy calculation
@@ -348,7 +349,7 @@ function calculateTotals() {
         const qty = parseFloat(tr.querySelector('.qty-input').value) || 0;
         const lineTotal = price * qty;
         
-        tr.querySelector('.total-display').innerText = '$' + lineTotal.toFixed(2);
+        tr.querySelector('.total-display').innerText = '₹' + lineTotal.toFixed(2);
         orderTotal += lineTotal;
     });
     

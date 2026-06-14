@@ -436,6 +436,7 @@ document.getElementById('po-form').addEventListener('submit', function() {
 document.addEventListener('DOMContentLoaded', function() {
     const sel = document.getElementById('vendor_id');
     if (sel.value) fillVendorInfo(sel.value);
+    document.body.appendChild(document.getElementById('vendor-modal'));
 });
 </script>
 

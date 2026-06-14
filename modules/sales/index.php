@@ -119,7 +119,7 @@ include __DIR__ . '/../../includes/header.php';
                                         ?>
                                         <span class="badge badge-<?= $badge ?>"><?= $statusLabel ?></span>
                                     </td>
-                                    <td style="text-align:right; font-weight:600;">$<?= number_format((float)$o['dynamic_total'], 2) ?></td>
+                                    <td style="text-align:right; font-weight:600;">₹<?= number_format((float)$o['dynamic_total'], 2) ?></td>
                                 </tr>
                             <?php endforeach; ?>
                         </tbody>

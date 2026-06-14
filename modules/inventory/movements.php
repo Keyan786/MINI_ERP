@@ -57,10 +57,11 @@ $params[] = $perPage; $params[] = $offset;
 $types .= "ii";
 
 $stmt = $conn->prepare("
-    SELECT sm.*, p.product_name, p.product_code, p.uom, u.full_name as user_name
+    SELECT sm.*, p.product_name, p.product_code, p.uom, u.full_name as user_name, w.warehouse_name
     FROM tbl_stock_movements sm
     JOIN tbl_products p ON sm.product_id = p.product_id
     LEFT JOIN tbl_users u ON sm.created_by = u.user_id
+    LEFT JOIN tbl_warehouses w ON sm.warehouse_id = w.warehouse_id
     WHERE $whereClause
     ORDER BY sm.created_at DESC
     LIMIT ? OFFSET ?
@@ -135,6 +136,7 @@ include __DIR__ . '/../../includes/header.php';
                     <th>Date</th>
                     <th>Product</th>
                     <th>Movement Type</th>
+                    <th>Warehouse</th>
                     <th>Direction</th>
                     <th>Reference Number</th>
                     <th style="text-align:right;">Quantity</th>
@@ -147,7 +149,7 @@ include __DIR__ . '/../../includes/header.php';
             </thead>
             <tbody>
                 <?php if (empty($movements)): ?>
-                    <tr><td colspan="11"><div class="empty-state" style="padding:40px;"><div class="empty-state-icon"><i class="fa-solid fa-arrow-right-arrow-left"></i></div><h3>No Movements</h3><p>No stock movements match the current filters.</p></div></td></tr>
+                    <tr><td colspan="12"><div class="empty-state" style="padding:40px;"><div class="empty-state-icon"><i class="fa-solid fa-arrow-right-arrow-left"></i></div><h3>No Movements</h3><p>No stock movements match the current filters.</p></div></td></tr>
                 <?php else: ?>
                     <?php foreach ($movements as $mv): ?>
                         <tr>
@@ -157,6 +159,7 @@ include __DIR__ . '/../../includes/header.php';
                                 <div style="font-size:0.7rem; font-family:'Fira Code',monospace; color:var(--accent-primary);"><?= e($mv['product_code']) ?></div>
                             </td>
                             <td><span class="badge badge-primary"><?= e(str_replace('_', ' ', ucfirst($mv['movement_type']))) ?></span></td>
+                            <td style="font-size:0.8125rem; font-weight:500; color:var(--text-secondary);"><?= $mv['warehouse_name'] ? e($mv['warehouse_name']) : 'Global' ?></td>
                             <td>
                                 <?php if ($mv['quantity'] > 0): ?>
                                     <span class="badge badge-success" style="font-size: 0.6875rem;"><i class="fa-solid fa-arrow-down"></i> IN</span>

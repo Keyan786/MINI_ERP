@@ -417,7 +417,7 @@ if ($so['status'] === 'cancelled') { $bColor = '#fff'; $bg = 'var(--color-danger
                                 <?php endif; ?>
                                 
                                 <td>
-                                    <div class="price-display" style="padding-top:8px;">$<?= number_format($l['unit_price'], 2) ?></div>
+                                    <div class="price-display" style="padding-top:8px;">₹<?= number_format($l['unit_price'], 2) ?></div>
                                 </td>
                                 
                                 <td>
@@ -436,7 +436,7 @@ if ($so['status'] === 'cancelled') { $bColor = '#fff'; $bg = 'var(--color-danger
                                 </td>
                                 
                                 <td>
-                                    <div class="total-display" style="font-weight:600; padding-top:8px;">$<?= number_format($lineTotal, 2) ?></div>
+                                    <div class="total-display" style="font-weight:600; padding-top:8px;">₹<?= number_format($lineTotal, 2) ?></div>
                                 </td>
                                 
                                 <?php if ($so['status'] === 'draft'): ?>
@@ -458,7 +458,7 @@ if ($so['status'] === 'cancelled') { $bColor = '#fff'; $bg = 'var(--color-danger
                                     Order Total (Delivered):
                                 <?php endif; ?>
                             </td>
-                            <td style="font-weight: bold; font-size: 1.1rem; color: var(--primary-color);">$<span id="order-total"><?= number_format($orderTotal, 2) ?></span></td>
+                            <td style="font-weight: bold; font-size: 1.1rem; color: var(--primary-color);">₹<span id="order-total"><?= number_format($orderTotal, 2) ?></span></td>
                             <?php if ($so['status'] === 'draft'): ?><td></td><?php endif; ?>
                         </tr>
                     </tfoot>
@@ -554,7 +554,7 @@ function addLine() {
             <div class="availability-display" style="font-size:0.85rem; color:var(--text-muted); padding-top:8px;">-</div>
         </td>
         <td>
-            <div class="price-display" style="padding-top:8px;">$0.00</div>
+            <div class="price-display" style="padding-top:8px;">₹0.00</div>
         </td>
         <td>
             <div style="display:flex; align-items:center; gap:5px;">
@@ -563,7 +563,7 @@ function addLine() {
             </div>
         </td>
         <td>
-            <div class="total-display" style="font-weight:600; padding-top:8px;">$0.00</div>
+            <div class="total-display" style="font-weight:600; padding-top:8px;">₹0.00</div>
         </td>
         <td>
             <button type="button" class="btn btn-sm btn-outline text-danger" onclick="this.closest('tr').remove(); calculateTotals();" style="border:none; padding:8px;">
@@ -584,7 +584,7 @@ function updateLine(selectElem) {
     
     if (!pid) {
         availDisplay.innerHTML = '-';
-        priceDisplay.innerText = '$0.00';
+        priceDisplay.innerText = '₹0.00';
         uomDisplay.innerText = '';
         calculateTotals();
         return;
@@ -595,7 +595,7 @@ function updateLine(selectElem) {
         let availColor = p.free_qty > 0 ? 'var(--color-success)' : 'var(--color-danger)';
         availDisplay.innerHTML = `<span style="color:${availColor}; font-weight:500;">${parseFloat(p.free_qty).toFixed(2)}</span> ${p.uom} free`;
         
-        priceDisplay.innerText = '$' + parseFloat(p.sales_price).toFixed(2);
+        priceDisplay.innerText = '₹' + parseFloat(p.sales_price).toFixed(2);
         uomDisplay.innerText = p.uom;
         
         tr.setAttribute('data-price', p.sales_price);
@@ -611,7 +611,7 @@ function calculateTotals() {
         const qty = parseFloat(tr.querySelector('.qty-input').value) || 0;
         const lineTotal = price * qty;
         
-        tr.querySelector('.total-display').innerText = '$' + lineTotal.toFixed(2);
+        tr.querySelector('.total-display').innerText = '₹' + lineTotal.toFixed(2);
         orderTotal += lineTotal;
     });
     
