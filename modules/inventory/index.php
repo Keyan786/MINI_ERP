@@ -88,9 +88,8 @@ include __DIR__ . '/../../includes/header.php';
         <a href="<?= BASE_URL ?>/modules/inventory/transfers.php" class="btn btn-secondary">
             <i class="fa-solid fa-truck-moving"></i> Transfers
         </a>
-        <a href="<?= BASE_URL ?>/modules/inventory/adjust.php" class="btn btn-primary">
-            <i class="fa-solid fa-sliders"></i> Adjust Stock
-        </a>
+        <a href="<?= BASE_URL ?>/modules/inventory/adjust.php" class="btn btn-secondary"><i class="fa-solid fa-sliders"></i> Adjust Stock</a>
+        <a href="<?= BASE_URL ?>/modules/inventory/damage.php" class="btn btn-danger"><i class="fa-solid fa-trash-can"></i> Report Damage</a>
         <a href="<?= BASE_URL ?>/modules/inventory/movements.php" class="btn btn-secondary">
             <i class="fa-solid fa-arrow-right-arrow-left"></i> Movements
         </a>

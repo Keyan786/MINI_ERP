@@ -225,6 +225,14 @@ if (is_post()) {
     $isCancelled = ($status === 'cancelled');
     $canReceive = ($isConfirmed || $isPartial);
     $canCancel = ($isDraft || $isConfirmed || $isPartial);
+    
+    $hasReceived = false;
+    $actualReceivedTotal = 0;
+    foreach ($lines as $l) {
+        if ($l['received_qty'] > 0) $hasReceived = true;
+        $billedQty = max(0, $l['received_qty'] - ($l['returned_qty'] ?? 0));
+        $actualReceivedTotal += ($billedQty * $l['cost_price']);
+    }
 }
 
 // PO status badge helper
@@ -263,6 +271,11 @@ include __DIR__ . '/../../includes/header.php';
                     <i class="fa-solid fa-check-double"></i> Confirm
                 </button>
             </form>
+        <?php endif; ?>
+        <?php if ($hasReceived): ?>
+            <a href="<?= BASE_URL ?>/modules/purchase/process_return.php?id=<?= $poId ?>" class="btn btn-warning">
+                <i class="fa-solid fa-rotate-left"></i> Process Return
+            </a>
         <?php endif; ?>
         <?php if ($canCancel): ?>
             <form method="POST" style="display:inline;">
@@ -387,10 +400,10 @@ include __DIR__ . '/../../includes/header.php';
     <div class="card" style="text-align:center;">
         <div class="card-body" style="padding:24px;">
             <div style="font-size:0.8125rem; color:var(--text-muted); margin-bottom:6px;">Received Total</div>
-            <div style="font-size:1.75rem; font-weight:700; color:var(--color-success);"><?= fmt_price($po['received_total']) ?></div>
+            <div style="font-size:1.75rem; font-weight:700; color:var(--color-success);"><?= fmt_price($actualReceivedTotal) ?></div>
             <?php if ($po['ordered_total'] > 0): ?>
                 <div style="font-size:0.75rem; color:var(--text-muted); margin-top:4px;">
-                    <?= round(($po['received_total'] / $po['ordered_total']) * 100, 1) ?>% received
+                    <?= round(($actualReceivedTotal / $po['ordered_total']) * 100, 1) ?>% received net
                 </div>
             <?php endif; ?>
         </div>
@@ -417,6 +430,9 @@ include __DIR__ . '/../../includes/header.php';
                     <th style="text-align:right;">Cost Price</th>
                     <th style="text-align:right;">Ordered Qty</th>
                     <th style="text-align:right;">Received Qty</th>
+                    <?php if (!in_array($status, ['draft', 'confirmed'])): ?>
+                        <th style="text-align:right;">Returned Qty</th>
+                    <?php endif; ?>
                     <?php if ($canReceive): ?><th style="text-align:right;">Receive Now</th><?php endif; ?>
                     <th style="text-align:right;">Line Total</th>
                     <th>Progress</th>
@@ -436,6 +452,13 @@ include __DIR__ . '/../../includes/header.php';
                         <td style="text-align:right; font-size:0.8125rem;"><?= fmt_price($line['cost_price']) ?></td>
                         <td style="text-align:right; font-weight:500;"><?= fmt_qty($line['ordered_qty']) ?></td>
                         <td style="text-align:right; font-weight:500; color:var(--color-success);"><?= fmt_qty($line['received_qty']) ?></td>
+                        
+                        <?php if (!in_array($status, ['draft', 'confirmed'])): ?>
+                        <td style="text-align:right; font-weight:500; <?= ($line['returned_qty'] > 0) ? 'color:var(--color-danger);' : 'color:var(--text-muted);' ?>">
+                            <?= ($line['returned_qty'] > 0) ? fmt_qty($line['returned_qty']) : '-' ?>
+                        </td>
+                        <?php endif; ?>
+                        
                         <?php if ($canReceive): ?>
                         <td style="text-align:right;">
                             <?php if ($remaining > 0): ?>
@@ -449,7 +472,15 @@ include __DIR__ . '/../../includes/header.php';
                             <?php endif; ?>
                         </td>
                         <?php endif; ?>
-                        <td style="text-align:right; font-weight:500;"><?= fmt_price($line['line_total']) ?></td>
+                        <td style="text-align:right; font-weight:600;">
+                            <?php 
+                                $billedQtyLine = max(0, $line['received_qty'] - ($line['returned_qty'] ?? 0));
+                                $lineTotal = in_array($status, ['draft', 'confirmed']) 
+                                    ? ($line['ordered_qty'] * $line['cost_price'])
+                                    : ($billedQtyLine * $line['cost_price']);
+                                echo fmt_price($lineTotal); 
+                            ?>
+                        </td>
                         <td>
                             <div style="width:80px; height:6px; background:var(--border-color); border-radius:3px; overflow:hidden;">
                                 <div style="width:<?= $pct ?>%; height:100%; background:<?= $pct >= 100 ? 'var(--color-success)' : 'var(--accent-primary)' ?>; border-radius:3px; transition:width 0.3s;"></div>

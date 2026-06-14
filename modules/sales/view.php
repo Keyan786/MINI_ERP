@@ -230,11 +230,15 @@ if (is_post() && csrf_validate()) {
 
 // Calculate Document Totals Dynamically
 $orderTotal = 0;
+$hasDelivered = false;
 foreach ($lines as $l) {
+    if ($l['delivered_qty'] > 0) $hasDelivered = true;
+    
     if (in_array($so['status'], ['draft', 'confirmed'])) {
         $orderTotal += ($l['ordered_qty'] * $l['unit_price']);
     } else {
-        $orderTotal += ($l['delivered_qty'] * $l['unit_price']);
+        $billedQty = max(0, $l['delivered_qty'] - ($l['returned_qty'] ?? 0));
+        $orderTotal += ($billedQty * $l['unit_price']);
     }
 }
 
@@ -264,6 +268,12 @@ include __DIR__ . '/../../includes/header.php';
             <button class="btn btn-success" onclick="document.getElementById('deliveryModal').style.display='flex'">
                 <i class="fa-solid fa-truck"></i> Deliver
             </button>
+        <?php endif; ?>
+        
+        <?php if ($hasDelivered): ?>
+            <a href="<?= BASE_URL ?>/modules/sales/process_return.php?id=<?= $soId ?>" class="btn btn-warning">
+                <i class="fa-solid fa-rotate-left"></i> Process Return
+            </a>
         <?php endif; ?>
         
         <?php if (in_array($so['status'], ['draft', 'confirmed', 'partially_delivered'])): ?>
@@ -376,6 +386,9 @@ if ($so['status'] === 'cancelled') { $bColor = '#fff'; $bg = 'var(--color-danger
                             <th style="width: 15%;">Unit Price</th>
                             <th style="width: 15%;">Ordered Qty</th>
                             <th style="width: 15%;">Delivered Qty</th>
+                            <?php if (!in_array($so['status'], ['draft', 'confirmed'])): ?>
+                                <th style="width: 15%;">Returned</th>
+                            <?php endif; ?>
                             <th style="width: 10%;">Line Total</th>
                             <?php if ($so['status'] === 'draft'): ?>
                                 <th style="width: 5%;"></th>
@@ -384,9 +397,11 @@ if ($so['status'] === 'cancelled') { $bColor = '#fff'; $bg = 'var(--color-danger
                     </thead>
                     <tbody id="lines-body">
                         <?php foreach ($lines as $l): 
+                            $returnedQty = $l['returned_qty'] ?? 0;
+                            $billedQty = max(0, $l['delivered_qty'] - $returnedQty);
                             $lineTotal = in_array($so['status'], ['draft', 'confirmed']) 
                                 ? ($l['ordered_qty'] * $l['unit_price']) 
-                                : ($l['delivered_qty'] * $l['unit_price']);
+                                : ($billedQty * $l['unit_price']);
                         ?>
                             <tr class="so-line" data-price="<?= $l['unit_price'] ?>">
                                 <td>
@@ -434,6 +449,16 @@ if ($so['status'] === 'cancelled') { $bColor = '#fff'; $bg = 'var(--color-danger
                                 <td>
                                     <div style="padding-top:8px; font-weight:500; color:var(--color-success);"><?= (float)$l['delivered_qty'] ?> <span class="text-muted" style="font-size:0.85rem;"><?= e($l['uom']) ?></span></div>
                                 </td>
+                                
+                                <?php if (!in_array($so['status'], ['draft', 'confirmed'])): ?>
+                                <td>
+                                    <?php if ($returnedQty > 0): ?>
+                                        <div style="padding-top:8px; font-weight:500; color:var(--color-danger);"><?= (float)$returnedQty ?> <span class="text-muted" style="font-size:0.85rem;"><?= e($l['uom']) ?></span></div>
+                                    <?php else: ?>
+                                        <div style="padding-top:8px; font-weight:500; color:var(--text-muted);">-</div>
+                                    <?php endif; ?>
+                                </td>
+                                <?php endif; ?>
                                 
                                 <td>
                                     <div class="total-display" style="font-weight:600; padding-top:8px;">₹<?= number_format($lineTotal, 2) ?></div>

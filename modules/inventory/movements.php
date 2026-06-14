@@ -74,7 +74,7 @@ $stmt->close();
 // Fetch products for filter dropdown
 $allProducts = $conn->query("SELECT product_id, product_name, product_code FROM tbl_products ORDER BY product_name")->fetch_all(MYSQLI_ASSOC);
 
-$moveTypes = ['initial', 'purchase_in', 'manufacturing_in', 'sales_out', 'manufacturing_consume', 'adjustment'];
+$moveTypes = ['initial', 'purchase_in', 'manufacturing_in', 'sales_out', 'manufacturing_consume', 'adjustment', 'damage_out', 'sales_return_in', 'purchase_return_out'];
 
 include __DIR__ . '/../../includes/header.php';
 ?>
