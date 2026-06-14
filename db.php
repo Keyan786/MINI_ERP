@@ -7,7 +7,7 @@
 
 $db_host = "localhost";
 $db_user = "root";
-$db_pass = "@MEH2004meh";
+$db_pass = "";
 $db_name = "ERP";
 
 // Create connection with utf8mb4 charset
